@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>WithCue Backend Test Client</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #video-feed {
+            width: 640px;
+            height: 360px;
+            background: #333;
+            border: 2px solid #000;
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        .status-box {
+            width: 640px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            text-align: left;
+            font-family: monospace;
+        }
+
+        .feedback-text {
+            color: red;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>WithCue Backend Test Console</h1>
+
+    <div class="controls">
+        <label>환자 목표 각도 (Limit): <input type="number" id="limit" value="60" style="width: 50px;"></label>
+        <button onclick="startMeasure()">📏 측정 모드 시작</button>
+        <button onclick="startCoach()">🏋️ 코칭 모드 (외회전)</button>
+        <button onclick="stop()">🛑 연결 종료</button>
+    </div>
+
+    <div class="container">
+        <img id="video-feed" alt="Waiting for stream..." />
+
+        <div class="status-box">
+            <p><strong>Status:</strong> <span id="status">Disconnected</span></p>
+            <p><strong>Angle:</strong> <span id="angle">-</span>°</p>
+            <p><strong>Message:</strong> <span id="message" class="feedback-text">-</span></p>
+            <p><strong>Raw Data:</strong> <span id="json-data" style="font-size:0.8em; color:#666;">-</span></p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const img = document.getElementById('video-feed');
+        const statusSpan = document.getElementById('status');
+        const angleSpan = document.getElementById('angle');
+        const msgSpan = document.getElementById('message');
+        const jsonSpan = document.getElementById('json-data');
+
+        function connect(url) {
+            if (ws) ws.close();
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                statusSpan.textContent = "Connected ✅";
+                statusSpan.style.color = "green";
+            };
+
+            ws.onmessage = (event) => {
+                const packet = JSON.parse(event.data);
+
+                // 1. 이미지 렌더링
+                if (packet.jpeg_b64) {
+                    img.src = "data:image/jpeg;base64," + packet.jpeg_b64;
+                }
+
+                // 2. 데이터 파싱
+                if (packet.data) {
+                    const d = packet.data;
+                    jsonSpan.textContent = JSON.stringify(d);
+
+                    if (d.angle !== undefined) angleSpan.textContent = d.angle;
+                    if (d.feedback) msgSpan.textContent = d.feedback; // 코칭 메시지
+                    else if (d.message) msgSpan.textContent = d.message; // 일반 메시지
+                }
+            };
+
+            ws.onclose = () => {
+                statusSpan.textContent = "Disconnected ❌";
+                statusSpan.style.color = "red";
+            };
+        }
+
+        function startMeasure() {
+            // 측정 모드 접속
+            connect("ws://localhost:8018/api/v1/ws/measure");
+        }
+
+        function startCoach() {
+            // 코칭 모드 접속 (외회전 + 목표각도 60도)
+            const limit = document.getElementById('limit').value;
+            connect(`ws://localhost:8018/api/v1/ws/coach/SHOULDER_EXTERNAL_ROTATION?limit=${limit}`);
+        }
+
+        function stop() {
+            if (ws) ws.close();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,6 @@
+from enum import Enum
+
+class Stage(Enum):
+    SHOULDER_ABDUCTION = "SHOULDER_ABDUCTION"
+    SIDE_LEG_RAISE = "SIDE_LEG_RAISE"
+    KNEE_FLEXION = "KNEE_FLEXION"
