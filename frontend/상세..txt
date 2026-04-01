@@ -1,0 +1,20 @@
+- 모바일/pc 혼용 가능하도록 반응형으로.
+- 순서 : 
+운동바로시작하기 
+운동선택 -> 운동선택페이지 
+
+260127
+wscamera 추가.
+ws연결
+
+260130
+front변경 - 
+icon - npm install lucide-react
+npm install framer-motion
+npm install recharts
+
+260204
+- websocket연결구조정리
+ - jetson 실제 ip 기반 websocket접속으로 수정
+- 스켈레톤 오버레이
+- sidebyside.jsx 추가 : check/exercise페이지 영상 영역

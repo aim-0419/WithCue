@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+:root, body, #root {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Arial, sans-serif;
+}
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+.exit-btn{
+  padding: 14px 22px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.92);   /* red-500 */
+  color: #fff;
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.3px;
+  border: none;
+  box-shadow:
+    0 8px 20px rgba(239, 68, 68, 0.35),
+    inset 0 0 0 1px rgba(255,255,255,0.25);
+  cursor: pointer;
+}
+
+.exit-btn:hover{
+  background: rgba(220, 38, 38, 0.95);   /* red-600 */
+  transform: translateY(-1px);
+}
+
+.exit-btn:active{
+  transform: translateY(0);
+  box-shadow:
+    0 4px 12px rgba(239, 68, 68, 0.35),
+    inset 0 0 0 1px rgba(255,255,255,0.25);
+}

@@ -1,0 +1,14 @@
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+numpy>=1.24.0,<2
+opencv-python>=4.7.0
+ultralytics>=8.0.0
+pyrealsense2
+websockets
+jinja2
+python-multipart
+torch
+torchvision
+sqlalchemy>=2.0.0
+pymysql>=1.1.0
+python-dotenv>=1.0.1
