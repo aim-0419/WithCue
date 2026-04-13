@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Any
 # 이 파일에 매핑을 모아두면, 라우터 코드(api.py)를 수정하지 않고도 확장이 쉽습니다.
 PART_TO_MEASURE_STAGE: Dict[str, str] = {
     "shoulder": "SHOULDER_ABDUCTION",
+    "shoulder_left": "LEFT_SHOULDER_ABDUCTION",
+    "shoulder_right": "RIGHT_SHOULDER_ABDUCTION",
     "hip": "SIDE_LEG_RAISE",
     "knee_left": "LEFT_KNEE_FLEXION",
     "knee_right": "RIGHT_KNEE_FLEXION",

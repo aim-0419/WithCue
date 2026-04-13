@@ -27,6 +27,14 @@ class DailyAccuracyItem(BaseModel):
     score: int
 
 
+class DailyAccuracyHistoryItem(BaseModel):
+    measured_on: date
+    accuracy_pct: int
+    source_type: str
+    source_key: Optional[str] = None
+    recorded_at: datetime
+
+
 class WeeklyAccuracyResponse(BaseModel):
     items: List[DailyAccuracyItem]
     latest_accuracy: Optional[int] = None

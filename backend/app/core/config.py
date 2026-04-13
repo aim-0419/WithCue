@@ -33,7 +33,7 @@ def _load_settings() -> Settings:
         ),
         auth_secret_key=os.getenv("AUTH_SECRET_KEY", "dev-change-this-secret"),
         auth_token_ttl_seconds=int(os.getenv("AUTH_TOKEN_TTL_SECONDS", "86400")),
-        yolo_model_path=os.getenv("YOLO_MODEL_PATH", "app/assets/models/yolov8s-pose.pt"),
+        yolo_model_path=os.getenv("YOLO_MODEL_PATH", "app/assets/models/yolov8n-pose.pt"),
         docs_url=os.getenv("DOCS_URL", "http://localhost:8018/docs"),
         mock_pipeline_mode=os.getenv("MOCK_PIPELINE_MODE", "false").lower() == "true",
         tts_enabled=os.getenv("TTS_ENABLED", "true").lower() == "true",

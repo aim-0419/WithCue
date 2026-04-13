@@ -123,3 +123,123 @@ async def coach_endpoint(
     processor = CoachingProcessor(exercise_name=exercise_name, limit_angle=target_limit)
     service.set_processor(processor)
     await service.start()
+
+# -----ws/dtw/{exercise} ---------
+# - 점수모드
+@router.websocket("/ws/dtw/{exercise}")
+async def dtw_endpoint(
+    websocket: WebSocket,
+    exercise: str,
+):
+    if settings.mock_pipeline_mode:
+        await websocket.accept()
+        await websocket.send_json(
+            {
+                "type": "frame",
+                "jpeg_b64": None,
+                "data": {
+                    "mode": "DTW",
+                    "status": "mock",
+                    "exercise": exercise,
+                    "message": f"DTW mock mode: {exercise}",
+                    "feedback": f"{exercise} DTW mock mode",
+                    "keypoints": {},
+                    "frame_w":1280,
+                    "frame_h": 720,
+                },
+            }
+        )
+        await websocket.close()
+        return
+    
+    yolo_model = getattr(websocket.app.state, "yolo_model", None)
+    if yolo_model is None:
+        await _send_model_unavailable(
+            websocket,
+            mode="DTW",
+            message="서버에서 YOLO모델을 로드하지 못했습니다. 백엔드 로그를 확인해주세요."
+        )
+        return
+    
+    from app.services.motion_service import MotionService
+    from app.services.processors import (
+        BirdDogDTWProcessor, 
+        BirdDogDTW,
+        ShoulderFrontRaiseLeftDTWProcessor,
+        ShoulderFrontRaiseLeftDTW,
+        KneeRaiseRightDTWProcessor,
+        KneeRaiseRightDTW,
+        NeckRotationDTWProcessor,
+        NeckRotationDTW,
+    )
+
+    service = MotionService(websocket, yolo_model)
+
+    if exercise == "bird_dog":
+        dtw_engine = BirdDogDTW("./app/assets/reference/bird_dog_reference_mp.json")
+        processor = BirdDogDTWProcessor(dtw_engine)
+        
+    elif exercise == "shoulder_front_raise_left":
+        dtw_engine = ShoulderFrontRaiseLeftDTW(
+            "./app/assets/reference/shoulder_front_raise_left_reference_mp.json"
+        )
+        processor = ShoulderFrontRaiseLeftDTWProcessor(
+            dtw_engine,
+            mirror_input=False,
+        )
+
+    elif exercise == "shoulder_front_raise_right":
+        dtw_engine = ShoulderFrontRaiseLeftDTW(
+            "./app/assets/reference/shoulder_front_raise_left_reference_mp.json"
+        )
+        processor = ShoulderFrontRaiseLeftDTWProcessor(
+            dtw_engine,
+            mirror_input=True,
+        )    
+        
+    elif exercise == "knee_raise_right":
+        dtw_engine = KneeRaiseRightDTW(
+            "./app/assets/reference/knee_raise_left_reference_mp.json"
+        )
+        processor = KneeRaiseRightDTWProcessor(
+            dtw_engine,
+            use_left_flip=False,
+        )
+
+    elif exercise == "knee_raise_left":
+        dtw_engine = KneeRaiseRightDTW(
+            "./app/assets/reference/knee_raise_left_reference_mp.json"
+        )
+        processor = KneeRaiseRightDTWProcessor(
+            dtw_engine,
+            use_left_flip=True,
+        )
+    elif exercise == "neck_rotation":
+        dtw_engine = NeckRotationDTW(
+            ref_path="./app/assets/reference/neck_rotation_reference_mp.json"
+        )
+        processor = NeckRotationDTWProcessor(dtw_engine)
+        
+    else:
+        await websocket.accept()
+        await websocket.send_json(
+            {
+                "type": "frame",
+                "jpeg_b64": None,
+                "data": {
+                    "mode": "DTW",
+                    "status": "error",
+                    "exercise": exercise,
+                    "message": f"지원하지 않는 DTW 운동: {exercise}",
+                    "feedback": f"지원하지 않는 DTW 운동: {exercise}",
+                    "keypoints": {},
+                    "frame_w": 1280,
+                    "frame_h": 720,
+                },
+            }
+        )
+        await websocket.close(code=1008, reason="unsupported_dtw_exercise")
+        return
+
+    service.set_processor(processor)
+    await service.start()

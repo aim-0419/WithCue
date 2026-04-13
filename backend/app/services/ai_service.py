@@ -18,18 +18,18 @@ class YOLODetector:
         if self.device == "cuda":
             self.model.to("cuda")
             print(f"[YOLO] Running on {torch.cuda.get_device_name(0)}")
-            log_gpu_snapshot("yolo_detector_initialized_cuda")
+            # log_gpu_snapshot("yolo_detector_initialized_cuda")
         else:
             self.model.to("cpu")
             print("[YOLO] Running on CPU")
-            log_gpu_snapshot("yolo_detector_initialized_cpu")
+            # log_gpu_snapshot("yolo_detector_initialized_cpu")
 
     def _switch_to_cpu(self):
         if self.device == "cpu":
             return
 
         logger.warning("CUDA inference failed. Falling back to CPU mode.")
-        log_gpu_snapshot("before_cpu_fallback", level=logging.WARNING)
+        # log_gpu_snapshot("before_cpu_fallback", level=logging.WARNING)
         try:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -48,11 +48,11 @@ class YOLODetector:
         앱 켜질 때 가짜 데이터로 한 번 실행시켜서 메모리를 미리 확보해둡니다.
         """
         print("[AI] Warming up model...")
-        log_gpu_snapshot("before_warmup")
+        # log_gpu_snapshot("before_warmup")
         dummy_frame = np.zeros((640, 640, 3), dtype=np.uint8)
         self.infer(dummy_frame)
         print("[AI] Warmup complete.")
-        log_gpu_snapshot("after_warmup")
+        # log_gpu_snapshot("after_warmup")
     
     @torch.no_grad()
     def infer(self, frame: np.ndarray, conf: float = 0.5):
@@ -62,8 +62,8 @@ class YOLODetector:
         """
         # stream=True는 메모리를 아끼지만, 여기선 즉시 결과를 원하므로 리스트의 첫 번째를 가져옴
         # verbose=False: 콘솔에 로그 도배 방지
-        if self.device == "cuda":
-            log_gpu_snapshot("before_infer")
+        # if self.device == "cuda":
+        #     log_gpu_snapshot("before_infer")
         try:
             results = self.model.predict(
                 frame,

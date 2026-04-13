@@ -36,9 +36,9 @@ def capture_gpu_snapshot() -> str:
 
     try:
         cuda_available = torch.cuda.is_available()
-        parts.append(f"torch.cuda.is_available={cuda_available}")
+        # parts.append(f"torch.cuda.is_available={cuda_available}")
     except Exception as e:
-        parts.append(f"torch.cuda.is_available error={type(e).__name__}: {e}")
+        # parts.append(f"torch.cuda.is_available error={type(e).__name__}: {e}")
         cuda_available = False
 
     if cuda_available:
@@ -65,11 +65,11 @@ def capture_gpu_snapshot() -> str:
         try:
             allocated = torch.cuda.memory_allocated(0)
             reserved = torch.cuda.memory_reserved(0)
-            parts.append(
-                "torch_mem="
-                f"allocated {_format_mib(allocated)} / "
-                f"reserved {_format_mib(reserved)}"
-            )
+            # parts.append(
+            #     "torch_mem="
+            #     f"allocated {_format_mib(allocated)} / "
+            #     f"reserved {_format_mib(reserved)}"
+            # )
         except Exception as e:
             parts.append(f"torch_mem error={type(e).__name__}: {e}")
 

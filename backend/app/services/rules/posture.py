@@ -60,7 +60,9 @@ def get_pose_angle(stage_name: str, keypoints: Dict) -> float:
     # ----------------------------------------------------
     
     # 1. 어깨 외전 (Abduction)
-    # 목적: 가동 범위가 더 제한된(각도가 낮은) 팔을 기준으로 측정
+    # 목적:
+    # - SHOULDER_ABDUCTION: 양팔 중 제한된 쪽(낮은 각도) 우선 측정
+    # - LEFT/RIGHT_SHOULDER_ABDUCTION: 선택한 쪽만 개별 측정
     if clean_stage == "SHOULDER_ABDUCTION":
         l_angle = 0.0
         r_angle = 0.0
@@ -76,6 +78,24 @@ def get_pose_angle(stage_name: str, keypoints: Dict) -> float:
         if l_angle > 0 and r_angle > 0:
             return min(l_angle, r_angle)
         return max(l_angle, r_angle)
+
+    elif clean_stage == "LEFT_SHOULDER_ABDUCTION":
+        if is_all_joints_visible(keypoints, [11, 5, 7]):
+            return auto_calc(
+                get_kpt(keypoints, 11),
+                get_kpt(keypoints, 5),
+                get_kpt(keypoints, 7),
+            )
+        return 0.0
+
+    elif clean_stage == "RIGHT_SHOULDER_ABDUCTION":
+        if is_all_joints_visible(keypoints, [12, 6, 8]):
+            return auto_calc(
+                get_kpt(keypoints, 12),
+                get_kpt(keypoints, 6),
+                get_kpt(keypoints, 8),
+            )
+        return 0.0
 
     # 2. 고관절 외전 (Side Leg Raise)
     # 목적: 다리를 올릴 때 상체의 보상 작용(기울임)을 포함한 중심축 각도 확인

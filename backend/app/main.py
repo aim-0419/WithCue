@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 # 작성한 라우터 모듈 임포트
 from app.api.v1.api import router as api_router
@@ -51,17 +52,17 @@ async def lifespan(app: FastAPI):
             # [중요] mock 모드에서 불필요한 의존성 로딩을 피하기 위해 여기서 지연 import
             from app.services.ai_service import YOLODetector
             logger.info("Loading YOLO Pose model...")
-            log_gpu_snapshot("before_model_load")
+            # log_gpu_snapshot("before_model_load")
             model_path = settings.yolo_model_path
 
             # 모델 로드
             detector = YOLODetector(model_path)
-            log_gpu_snapshot("after_model_load")
+            # log_gpu_snapshot("after_model_load")
 
             # [추가] 미리 한 번 실행해서 메모리 공간 확보
             # 이거 안하면 첫 접속자가 들어올 때 렉이 걸리거나 메모리가 터질 수 있습니다.
             detector.warmup()
-            log_gpu_snapshot("after_model_warmup")
+            # log_gpu_snapshot("after_model_warmup")
 
             app.state.yolo_model = detector
             logger.info("YOLO model ready.")
@@ -99,6 +100,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Public static files (recordings/features)
+public_dir = os.path.join(os.path.dirname(__file__), "public")
+os.makedirs(public_dir, exist_ok=True)
+app.mount("/public", StaticFiles(directory=public_dir), name="public")
 
 # CORS 설정
 app.add_middleware(

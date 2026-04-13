@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.api.v1.deps import get_current_user, get_optional_current_user
 from app.core.database import User, get_db
-from app.schemas.session import DailyAccuracyUpsertRequest, WeeklyAccuracyResponse
+from app.schemas.session import (
+    DailyAccuracyHistoryItem,
+    DailyAccuracyUpsertRequest,
+    WeeklyAccuracyResponse,
+)
 from app.services.session_service import SessionService
 
 router = APIRouter()
@@ -49,6 +53,8 @@ def upsert_daily_accuracy(
 @router.get("/accuracy-history/weekly", response_model=WeeklyAccuracyResponse)
 def get_weekly_accuracy(
     base_date: date | None = Query(None),
+    source_type: str | None = Query(None),
+    source_key: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
@@ -57,4 +63,23 @@ def get_weekly_accuracy(
         db,
         base_date=base_date,
         user_id=current_user.user_id if current_user else None,
+        source_type=source_type,
+        source_key=source_key,
+    )
+
+
+@router.get("/accuracy-history", response_model=list[DailyAccuracyHistoryItem])
+def list_accuracy_history(
+    source_type: str | None = Query(None),
+    source_key: str | None = Query(None),
+    limit: int = Query(30, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    return SessionService.list_accuracy_history(
+        db,
+        user_id=current_user.user_id if current_user else None,
+        source_type=source_type,
+        source_key=source_key,
+        limit=limit,
     )

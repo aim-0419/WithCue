@@ -11,6 +11,16 @@ html, body, #root {
 body {
   overflow-x: hidden;
 }
+
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
 .exit-btn{
   padding: 14px 22px;
   border-radius: 999px;

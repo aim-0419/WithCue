@@ -4,7 +4,12 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 from app.core.database import DailyAccuracyHistory, ExerciseSession, ExerciseSessionSummary, RehabExercise
-from app.schemas.session import DailyAccuracyItem, RecentSessionItem, WeeklyAccuracyResponse
+from app.schemas.session import (
+    DailyAccuracyItem,
+    DailyAccuracyHistoryItem,
+    RecentSessionItem,
+    WeeklyAccuracyResponse,
+)
 
 
 class SessionService:
@@ -60,31 +65,17 @@ class SessionService:
         source_key: Optional[str],
         user_id: Optional[int],
     ) -> DailyAccuracyHistory:
-        # [조현석] 같은 날 여러 번 운동해도 메인 주간 점수는 "그날 마지막 결과 1건"만 보이도록 upsert 방식으로 저장합니다.
+        # [조현석] 측정/운동 결과를 누적 기록으로 저장합니다.
         clamped = max(0, min(100, round(accuracy_pct)))
-
-        query = db.query(DailyAccuracyHistory).filter(DailyAccuracyHistory.measured_on == measured_on)
-        if user_id is None:
-            query = query.filter(DailyAccuracyHistory.user_id.is_(None))
-        else:
-            query = query.filter(DailyAccuracyHistory.user_id == user_id)
-
-        entry = query.one_or_none()
-        if entry is None:
-            entry = DailyAccuracyHistory(
-                user_id=user_id,
-                measured_on=measured_on,
-                accuracy_pct=clamped,
-                source_type=source_type,
-                source_key=source_key,
-                recorded_at=datetime.now(),
-            )
-            db.add(entry)
-        else:
-            entry.accuracy_pct = clamped
-            entry.source_type = source_type
-            entry.source_key = source_key
-            entry.recorded_at = datetime.now()
+        entry = DailyAccuracyHistory(
+            user_id=user_id,
+            measured_on=measured_on,
+            accuracy_pct=clamped,
+            source_type=source_type,
+            source_key=source_key,
+            recorded_at=datetime.now(),
+        )
+        db.add(entry)
 
         db.commit()
         db.refresh(entry)
@@ -97,6 +88,8 @@ class SessionService:
         *,
         base_date: Optional[date],
         user_id: Optional[int],
+        source_type: Optional[str] = None,
+        source_key: Optional[str] = None,
     ) -> WeeklyAccuracyResponse:
         # [조현석] 차트 UI가 월~일 7칸 고정이라 DB 조회 결과도 같은 형태로 맞추고, 빈 날은 0점으로 채웁니다.
         current = base_date or date.today()
@@ -111,12 +104,21 @@ class SessionService:
             query = query.filter(DailyAccuracyHistory.user_id.is_(None))
         else:
             query = query.filter(DailyAccuracyHistory.user_id == user_id)
+        if source_type:
+            query = query.filter(DailyAccuracyHistory.source_type == source_type)
+        if source_key:
+            query = query.filter(DailyAccuracyHistory.source_key == source_key)
 
         rows = query.all()
-        score_by_day = {
-            row.measured_on: max(0, min(100, round(float(row.accuracy_pct))))
-            for row in rows
-        }
+        score_by_day: dict[date, int] = {}
+        latest_by_day: dict[date, datetime] = {}
+        for row in rows:
+            measured_on = row.measured_on
+            recorded_at = row.recorded_at
+            score = max(0, min(100, round(float(row.accuracy_pct))))
+            if measured_on not in latest_by_day or recorded_at > latest_by_day[measured_on]:
+                latest_by_day[measured_on] = recorded_at
+                score_by_day[measured_on] = score
 
         items: List[DailyAccuracyItem] = []
         for index, label in enumerate(cls.WEEKDAY_LABELS):
@@ -134,6 +136,10 @@ class SessionService:
             latest_query = latest_query.filter(DailyAccuracyHistory.user_id.is_(None))
         else:
             latest_query = latest_query.filter(DailyAccuracyHistory.user_id == user_id)
+        if source_type:
+            latest_query = latest_query.filter(DailyAccuracyHistory.source_type == source_type)
+        if source_key:
+            latest_query = latest_query.filter(DailyAccuracyHistory.source_key == source_key)
 
         latest_row = latest_query.order_by(DailyAccuracyHistory.recorded_at.desc()).first()
         latest_accuracy = None
@@ -141,3 +147,36 @@ class SessionService:
             latest_accuracy = max(0, min(100, round(float(latest_row.accuracy_pct))))
 
         return WeeklyAccuracyResponse(items=items, latest_accuracy=latest_accuracy)
+
+    @staticmethod
+    def list_accuracy_history(
+        db: Session,
+        *,
+        user_id: Optional[int],
+        source_type: Optional[str],
+        source_key: Optional[str],
+        limit: int,
+    ) -> list[DailyAccuracyHistoryItem]:
+        query = db.query(DailyAccuracyHistory)
+        if user_id is None:
+            query = query.filter(DailyAccuracyHistory.user_id.is_(None))
+        else:
+            query = query.filter(DailyAccuracyHistory.user_id == user_id)
+        if source_type:
+            query = query.filter(DailyAccuracyHistory.source_type == source_type)
+        if source_key:
+            query = query.filter(DailyAccuracyHistory.source_key == source_key)
+
+        rows = query.order_by(DailyAccuracyHistory.recorded_at.desc()).limit(limit).all()
+        items: list[DailyAccuracyHistoryItem] = []
+        for row in rows:
+            items.append(
+                DailyAccuracyHistoryItem(
+                    measured_on=row.measured_on,
+                    accuracy_pct=int(round(float(row.accuracy_pct))),
+                    source_type=row.source_type,
+                    source_key=row.source_key,
+                    recorded_at=row.recorded_at,
+                )
+            )
+        return items
