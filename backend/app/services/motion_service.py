@@ -17,9 +17,10 @@ from app.services.processors import BaseProcessor
 from app.services.dtw_feature_extractor import get_bird_dog_features_mp
 import mediapipe as mp
 
-STREAM_FRAME_W = 1280
-STREAM_FRAME_H = 720
-CAMERA_INIT_TIMEOUT_SECONDS = 5.0
+STREAM_FRAME_W = 640
+STREAM_FRAME_H = 360
+CAMERA_INIT_TIMEOUT_SECONDS = 15.0
+EMPTY_FRAME_RETRY_LIMIT = 15
 # [핵심] 스트리밍 해상도 상수화: 프론트 렌더링/성능 튜닝 시 한 곳에서 조절
 logger = logging.getLogger(__name__)
 
@@ -52,9 +53,9 @@ class MotionService:
             base_options=BaseOptions(model_asset_path=model_path),
             running_mode=VisionRunningMode.VIDEO,
             num_poses=1,
-            min_pose_detection_confidence=0.3,
-            min_pose_presence_confidence=0.3,
-            min_tracking_confidence=0.3,
+            min_pose_detection_confidence=0.6,
+            min_pose_presence_confidence=0.6,
+            min_tracking_confidence=0.6,
             output_segmentation_masks=False,
         )
 
@@ -72,23 +73,35 @@ class MotionService:
     async def start(self):
         await self.ws.accept()
         try:
-            logger.info("Camera start requested. conn=%s", self.conn_id)
+            logger.info("카메라 시작을 요청했습니다. conn=%s", self.conn_id)
             camera_manager.start()
         except Exception as e:
-            logger.warning("Camera start warning: %s conn=%s", e, self.conn_id)
-            
+            logger.warning("카메라 시작에 실패했습니다: %s conn=%s", e, self.conn_id)
+            await self._send_status_only(
+                {
+                    "mode": "ERROR",
+                    "status": "camera_unavailable",
+                    "message": str(e),
+                    "feedback": "카메라를 시작하지 못했습니다.",
+                    "keypoints": {},
+                }
+            )
+            await self.ws.close(code=1011, reason="camera_start_failed")
+            return
+
         self.running = True
-        logger.info("Service started: %s | conn=%s", self.processor.__class__.__name__, self.conn_id)
+        logger.info("모션 서비스가 시작되었습니다: %s | conn=%s", self.processor.__class__.__name__, self.conn_id)
         
         try:
             loop = asyncio.get_running_loop()
+            empty_frame_count = 0
             
             # intrinsics 초기화 대기 루프
             wait_started = loop.time()
             while self.running and camera_manager.intrinsics is None:
                 logger.debug("Waiting for camera intrinsics...")
                 if loop.time() - wait_started > CAMERA_INIT_TIMEOUT_SECONDS:
-                    logger.error("Camera initialization timed out.")
+                    logger.error("카메라 초기화 시간이 초과되었습니다.")
                     await self._send_status_only(
                         {
                             "mode": "ERROR",
@@ -98,39 +111,42 @@ class MotionService:
                             "keypoints": {},
                         }
                     )
-                    break
+                    await self.ws.close(code=1011, reason="camera_init_timeout")
+                    return
                 await asyncio.sleep(0.1)
                             
             while self.running:
                 if self.ws.client_state != WebSocketState.CONNECTED:
-                    logger.info("WebSocket not connected. Stopping service loop. conn=%s", self.conn_id)
+                    logger.info("WebSocket 연결이 종료되어 서비스 루프를 중단합니다. conn=%s", self.conn_id)
                     break
                 # 1. 프레임 획득
                 frame, depth_frame, intrinsics = camera_manager.get_frame()
                 
                 if frame is None:
-                    logger.warning("Frame is None. Camera disconnected/loading. conn=%s", self.conn_id)
-                    await self._send_status_only(
-                        {
-                            "mode": "ERROR",
-                            "status": "camera_unavailable",
-                            "message": "카메라 프레임을 받아오지 못하고 있습니다.",
-                            "feedback": "카메라 프레임 수신 실패",
-                            "keypoints": {},
-                        }
+                    empty_frame_count += 1
+                    logger.warning(
+                        "카메라 프레임을 가져오지 못했습니다. retry=%s/%s conn=%s",
+                        empty_frame_count,
+                        EMPTY_FRAME_RETRY_LIMIT,
+                        self.conn_id,
                     )
+                    if empty_frame_count >= EMPTY_FRAME_RETRY_LIMIT:
+                        await self._send_status_only(
+                            {
+                                "mode": "ERROR",
+                                "status": "camera_unavailable",
+                                "message": "카메라 프레임을 연속으로 받아오지 못했습니다.",
+                                "feedback": "카메라 프레임 수신 실패",
+                                "keypoints": {},
+                            }
+                        )
+                        break
                     await asyncio.sleep(0.05)
-                    break
+                    continue
+                empty_frame_count = 0
 
-                # 2. YOLO 추론
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                result = await loop.run_in_executor(
-                    None, 
-                    lambda: self.yolo.infer(frame_rgb, conf=0.25)
-                )
-                keypoints = extract_keypoints(result)
-                
-                # 2-1. MediaPipe feature 추출
+                # 2. MediaPipe feature 추출 (YOLO 비활성화)
+                keypoints = {}
                 mp_features = None
                 try:
                     h, w = frame.shape[:2]
@@ -149,13 +165,13 @@ class MotionService:
 
                         for i, lm in enumerate(lms):
                             vis = getattr(lm, "visibility", 1.0)
-                            if vis < 0.1:
+                            if vis < 0.5:
                                 continue
 
                             x = lm.x * STREAM_FRAME_W
                             y = lm.y * STREAM_FRAME_H
                             pts[i] = (x, y)
-                        logger.warning("[MP] pts_count=%s conn=%s", len(pts), self.conn_id)
+                        logger.debug("[MP] pts_count=%s conn=%s", len(pts), self.conn_id)
 
                         # MediaPipe -> COCO17 매핑 (프론트 스켈레톤/기존 규칙용)
                         mp_to_coco = {
@@ -190,15 +206,14 @@ class MotionService:
                         if coco_keypoints:
                             keypoints = coco_keypoints
 
-
                         if self.processor and hasattr(self.processor, "extract_mp_features"):
                             mp_features = self.processor.extract_mp_features(pts)
-                            logger.warning("[MP] extracted features=%s conn=%s", mp_features, self.conn_id)
+                            logger.debug("[MP] extracted features=%s conn=%s", mp_features, self.conn_id)
                         else:
                             mp_features = None
 
                 except Exception as e:
-                    logger.exception("MediaPipe feature extraction error: %s", e)
+                    logger.exception("MediaPipe feature 추출 중 오류가 발생했습니다: %s", e)
                     mp_features = None
                     
                 # 3. 로직 수행
@@ -221,7 +236,20 @@ class MotionService:
                     if process_result is not None:
                         data = process_result
                     
-                data["keypoints"] = keypoints
+                display_keypoints = keypoints
+                if self.processor and getattr(self.processor, "mirror_input", False):
+                    if isinstance(keypoints, dict) and keypoints:
+                        flipped = {}
+                        for k, pt in keypoints.items():
+                            if not isinstance(pt, dict):
+                                continue
+                            x = pt.get("x")
+                            y = pt.get("y")
+                            if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+                                flipped[k] = {"x": float(STREAM_FRAME_W - x), "y": float(y)}
+                        if flipped:
+                            display_keypoints = flipped
+                data["keypoints"] = display_keypoints
                 accuracy_pct = data.get("accuracy_pct")
                 if self._should_start_recording(accuracy_pct):
                     self._start_recording()
@@ -233,21 +261,21 @@ class MotionService:
 
                 # 4. 전송
                 if not await self._send_packet(frame, data):
-                    logger.warning("Send failed. Breaking service loop. conn=%s", self.conn_id)
+                    logger.warning("프레임 전송에 실패하여 서비스 루프를 중단합니다. conn=%s", self.conn_id)
                     break 
                 
                 await asyncio.sleep(0.033)
 
         except WebSocketDisconnect:
-            logger.info("Client disconnected. conn=%s", self.conn_id)
+            logger.info("클라이언트 연결이 종료되었습니다. conn=%s", self.conn_id)
         except Exception as e:
-            logger.exception("Critical service error: %s | conn=%s", e, self.conn_id)
+            logger.exception("모션 서비스 처리 중 치명적인 오류가 발생했습니다: %s | conn=%s", e, self.conn_id)
         finally:
             self.running = False
             self._stop_recording(reason="service_stop")
-            logger.info("Camera stop requested. conn=%s", self.conn_id)
+            logger.info("카메라 종료를 요청했습니다. conn=%s", self.conn_id)
             camera_manager.stop()
-            logger.info("Service stopped. conn=%s", self.conn_id)
+            logger.info("모션 서비스가 종료되었습니다. conn=%s", self.conn_id)
 
     async def _send_status_only(self, data):
         try:
@@ -264,7 +292,7 @@ class MotionService:
         except (WebSocketDisconnect, RuntimeError):
             return
         except Exception as e:
-            logger.exception("Status send error: %s", e)
+            logger.exception("상태 전송 중 오류가 발생했습니다: %s", e)
 
     async def _send_packet(self, frame, data):
         """ 화면과 데이터를 합쳐서 전송 """
@@ -289,7 +317,7 @@ class MotionService:
         except (WebSocketDisconnect, RuntimeError) as e:
             return False
         except Exception as e:
-            logger.exception("Frame send error: %s", e)
+            logger.exception("프레임 전송 중 오류가 발생했습니다: %s", e)
             return False
 
     def _should_start_recording(self, accuracy_pct):
@@ -305,9 +333,14 @@ class MotionService:
         if self.recording_active:
             return
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base_name = f"record_{timestamp}_conn_{self.conn_id}"
-        self.record_video_path = os.path.join(self.recordings_dir, f"{base_name}.mp4")
-        self.record_features_path = os.path.join(self.features_dir, f"{base_name}.json")
+        exercise_tag = self._get_exercise_tag()
+        base_name = f"record_{timestamp}_{exercise_tag}"
+        exercise_recordings_dir = os.path.join(self.recordings_dir, exercise_tag)
+        exercise_features_dir = os.path.join(self.features_dir, exercise_tag)
+        os.makedirs(exercise_recordings_dir, exist_ok=True)
+        os.makedirs(exercise_features_dir, exist_ok=True)
+        self.record_video_path = os.path.join(exercise_recordings_dir, f"{base_name}.mp4")
+        self.record_features_path = os.path.join(exercise_features_dir, f"{base_name}.json")
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.video_writer = cv2.VideoWriter(
             self.record_video_path,
@@ -318,7 +351,7 @@ class MotionService:
         self.record_features = []
         self.recording_active = True
         logger.info(
-            "Recording started. video=%s features=%s conn=%s",
+            "녹화를 시작했습니다. video=%s features=%s conn=%s",
             self.record_video_path,
             self.record_features_path,
             self.conn_id,
@@ -339,7 +372,7 @@ class MotionService:
                 }
             )
         except Exception as e:
-            logger.exception("Recording frame error: %s", e)
+            logger.exception("녹화 프레임 저장 중 오류가 발생했습니다: %s", e)
 
     def _stop_recording(self, reason):
         if not self.recording_active:
@@ -348,7 +381,7 @@ class MotionService:
             if self.video_writer is not None:
                 self.video_writer.release()
         except Exception as e:
-            logger.exception("Video writer release error: %s", e)
+            logger.exception("영상 파일 마무리 중 오류가 발생했습니다: %s", e)
         try:
             with open(self.record_features_path, "w", encoding="utf-8") as f:
                 json.dump(
@@ -361,9 +394,9 @@ class MotionService:
                     ensure_ascii=False,
                 )
         except Exception as e:
-            logger.exception("Feature json write error: %s", e)
+            logger.exception("feature json 저장 중 오류가 발생했습니다: %s", e)
         logger.info(
-            "Recording stopped. video=%s features=%s conn=%s",
+            "녹화를 종료했습니다. video=%s features=%s conn=%s",
             self.record_video_path,
             self.record_features_path,
             self.conn_id,
@@ -371,3 +404,25 @@ class MotionService:
         self.recording_active = False
         self.video_writer = None
         self.record_features = []
+
+    def _get_exercise_tag(self):
+        if self.processor is None:
+            return "exercise"
+        exercise_name = getattr(self.processor, "exercise_name", None)
+        side = getattr(self.processor, "active_side", None)
+        side_tag = None
+        if isinstance(side, str) and side.strip():
+            side_tag = side.strip().lower()
+        if isinstance(exercise_name, str) and exercise_name.strip():
+            base = exercise_name.strip().lower().replace(" ", "_")
+            return f"{base}_{side_tag}" if side_tag else base
+        name = self.processor.__class__.__name__.lower()
+        if "birddog" in name or "bird_dog" in name:
+            return "bird_dog"
+        if "shoulder" in name and "front" in name:
+            return f"shoulder_front_raise_{side_tag}" if side_tag else "shoulder_front_raise"
+        if "knee" in name and "raise" in name:
+            return f"knee_raise_{side_tag}" if side_tag else "knee_raise"
+        if "neck" in name and "rotation" in name:
+            return "neck_rotation"
+        return "exercise"

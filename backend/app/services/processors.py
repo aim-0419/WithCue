@@ -2,6 +2,8 @@ import time
 import cv2
 import base64
 import logging
+import os
+import csv
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
@@ -19,6 +21,22 @@ from app.services.score_service import (
 )
 import json
 
+# Neck ROM 전용 로그 설정
+NECK_ROM_LOG_DIR = "/home/aim0419/withcue_v1.0/backend/logs"
+NECK_ROM_LOG_PATH = os.path.join(
+    NECK_ROM_LOG_DIR,
+    f"neck_rom_{time.strftime('%Y%m%d_%H%M%S')}.log",
+)
+_neck_rom_logger = logging.getLogger("neck_rom")
+if not _neck_rom_logger.handlers:
+    os.makedirs(NECK_ROM_LOG_DIR, exist_ok=True)
+    _neck_rom_logger.setLevel(logging.INFO)
+    _neck_rom_handler = logging.FileHandler(NECK_ROM_LOG_PATH, mode="a", encoding="utf-8")
+    _neck_rom_formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    _neck_rom_handler.setFormatter(_neck_rom_formatter)
+    _neck_rom_logger.addHandler(_neck_rom_handler)
+    _neck_rom_logger.propagate = False
+
 # 운동별 DTW 기준이 되는 feature import
 from app.services.dtw_feature_extractor import (
     get_bird_dog_features_mp,
@@ -27,8 +45,116 @@ from app.services.dtw_feature_extractor import (
     flip_mediapipe_left_right,
     get_neck_rotation_features_mp,
 )
+from app.services.feedback.realtime_feedback_router import RealTimeFeedbackRouter
+from app.services.feedback.session_feedback_summary import SessionFeedbackSummary, format_top3_text
 
 logger = logging.getLogger(__name__)
+
+DTW_FRAME_LOG_PATH = os.path.join(NECK_ROM_LOG_DIR, "dtw_frame_feedback_log.csv")
+
+
+class DtwFrameCsvLogger:
+    FIELDNAMES = [
+        "logged_at",
+        "session_id",
+        "exercise_type",
+        "frame_index",
+        "mode",
+        "status",
+        "rep_count",
+        "accuracy_pct",
+        "similarity",
+        "avg_similarity",
+        "motion_similarity",
+        "posture_similarity",
+        "cost",
+        "score",
+        "final_score",
+        "session_finished",
+        "buffer_len",
+        "phase",
+        "main_error_feature",
+        "feedback",
+        "mp_features_json",
+        "live_result_json",
+        "compare_payload_json",
+        "feedback_packet_json",
+        "all_issues_json",
+        "feature_errors_json",
+        "session_summary_json",
+        "payload_json",
+    ]
+
+    def __init__(self, exercise_type: str, path: str = DTW_FRAME_LOG_PATH):
+        self.exercise_type = str(exercise_type)
+        self.path = path
+        self.session_id = (
+            f"{self.exercise_type}_{time.strftime('%Y%m%d_%H%M%S')}_"
+            f"{int((time.time() % 1) * 1000):03d}"
+        )
+        self.frame_index = 0
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        if not os.path.exists(self.path) or os.path.getsize(self.path) == 0:
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8-sig", newline="") as fp:
+                reader = csv.reader(fp)
+                header = next(reader, [])
+        except OSError:
+            return
+
+        if header == self.FIELDNAMES:
+            return
+
+        backup_path = (
+            f"{self.path}.bak_{time.strftime('%Y%m%d_%H%M%S')}"
+        )
+        os.replace(self.path, backup_path)
+
+    def log(self, payload: Dict[str, Any]) -> None:
+        self.frame_index += 1
+        feature_errors = payload.get("feature_errors", {})
+        feedback_packet = payload.get("feedback_packet", {}) or {}
+        row = {
+            "logged_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "session_id": self.session_id,
+            "exercise_type": self.exercise_type,
+            "frame_index": self.frame_index,
+            "mode": payload.get("mode"),
+            "status": payload.get("status"),
+            "rep_count": payload.get("rep_count"),
+            "accuracy_pct": payload.get("accuracy_pct"),
+            "similarity": payload.get("similarity"),
+            "avg_similarity": payload.get("avg_similarity"),
+            "motion_similarity": payload.get("motion_similarity"),
+            "posture_similarity": payload.get("posture_similarity"),
+            "cost": payload.get("cost"),
+            "score": payload.get("score"),
+            "final_score": payload.get("final_score"),
+            "session_finished": payload.get("session_finished"),
+            "buffer_len": payload.get("buffer_len"),
+            "phase": payload.get("phase"),
+            "main_error_feature": payload.get("main_error_feature"),
+            "feedback": payload.get("feedback"),
+            "mp_features_json": json.dumps(payload.get("mp_features"), ensure_ascii=False) if payload.get("mp_features") is not None else "",
+            "live_result_json": json.dumps(payload.get("live_result"), ensure_ascii=False) if payload.get("live_result") is not None else "",
+            "compare_payload_json": json.dumps(payload.get("compare_payload"), ensure_ascii=False) if payload.get("compare_payload") is not None else "",
+            "feedback_packet_json": json.dumps(feedback_packet, ensure_ascii=False) if feedback_packet else "",
+            "all_issues_json": json.dumps(feedback_packet.get("all_issues"), ensure_ascii=False) if feedback_packet.get("all_issues") else "",
+            "feature_errors_json": json.dumps(feature_errors, ensure_ascii=False) if feature_errors else "",
+            "session_summary_json": json.dumps(payload.get("session_summary"), ensure_ascii=False) if payload.get("session_summary") is not None else "",
+            "payload_json": json.dumps(payload, ensure_ascii=False),
+        }
+        file_exists = os.path.exists(self.path)
+        needs_header = (not file_exists) or os.path.getsize(self.path) == 0
+        with open(self.path, "a", newline="", encoding="utf-8-sig") as fp:
+            writer = csv.DictWriter(fp, fieldnames=self.FIELDNAMES)
+            if needs_header:
+                writer.writeheader()
+            writer.writerow(row)
 
 class BaseProcessor(ABC):
     @abstractmethod
@@ -493,14 +619,249 @@ class CoachingProcessor(BaseProcessor):
             "recovery_delta_pct": recovery_delta_pct,
             "deviation_flags": deviation_flags,
         }
+# ----------------------------------------------------------------------------------------------------------------------------------------
+# 부위별 측정 프로세서
+# ----------------------------------------------------------------------------------------------------------------------------------------
 
-# ------- 운동별 processor ------------------------------------ 
+# 목 부위
+class NeckROMMeasurementProcessor(BaseProcessor):
+    def __init__(self, fps=30):
+        self.state = "READY"
+        self.fps = fps
+        
+        self.hold_frames_required = int(3 * fps)
+        self.hold_count = 0
+        self.miss_count = 0
+        self.hold_start_time = None
+        self.left_hold_completed = False
+        
+        self.left_values = []
+        self.right_values = []
+        
+        self.compensation_detected = False
+        
+        # threshold(상수분리)
+        self.TRUNK_THRESH = 8.0
+        self.TILT_THRESH = 30.0
+        self.SHOULDER_THRESH = 6.0
+        self.LEFT_ENTER_THRESHOLD = -20.0
+        self.LEFT_HOLD_MIN_THRESHOLD = -10.0
+        self.RIGHT_ENTER_THRESHOLD = 20.0
+        self.RIGHT_HOLD_MAX_THRESHOLD = 15.0
+        self.CENTER_THRESHOLD = 5.0
+        self.MAX_MISS_FRAMES = 5
+  
+    def extract_mp_features(self, pts):
+        return get_neck_rotation_features_mp(pts)
+        
+    def reset(self):
+        self.__init__(self.fps)
+        
+    def _is_valid(self, feat):
+        trunk, neck, tilt, shoulder = feat
+        
+        if abs(trunk) > self.TRUNK_THRESH:
+            return False
+        if abs(tilt) > self.TILT_THRESH:
+            return False
+        # shoulder_line_angle는 수평 기준으로 180 근처가 정상
+        if abs(shoulder - 180.0) > self.SHOULDER_THRESH:
+            return False
+        
+        return True
+    
+    def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
+        transition_log = None
+        
+        # feature 없으면 리셋
+        if mp_features is None:
+            self.hold_count = 0
+            self.miss_count = 0
+            self.hold_start_time = None
+            self.left_hold_completed = False
+            return {
+                "status": "waiting",
+                "message": "자세를 인식 중입니다.",
+            }    
+            
+        feat = mp_features
+        trunk, neck_angle, tilt, shoulder = feat
+        
+        valid = self._is_valid(feat)
+        if not valid:
+            self.compensation_detected = True
+            self.hold_count = 0
+            self.miss_count = 0
+            self.hold_start_time = None
+            self.left_hold_completed = False
+            _neck_rom_logger.info(
+                "[NECK_ROM] state=%s hold=%s neck=%.2f trunk=%.2f tilt=%.2f shoulder=%.2f valid=False",
+                self.state,
+                self.hold_count,
+                neck_angle,
+                trunk,
+                tilt,
+                shoulder,
+            )
+            return {
+                "status": "invalid",
+                "message": "몸통을 고정해주세요",
+            }
+        else:
+            _neck_rom_logger.info(
+                "[NECK_ROM] state=%s hold=%s neck=%.2f trunk=%.2f tilt=%.2f shoulder=%.2f valid=True",
+                self.state,
+                self.hold_count,
+                neck_angle,
+                trunk,
+                tilt,
+                shoulder,
+            )
+        
+        # ---------------- READY ----------------
+        if self.state == "READY":
+            if abs(neck_angle) < self.CENTER_THRESHOLD:
+                return {
+                    "mode": "MEASURE",
+                    "stage": "NECK_ROM",
+                    "status": "ready",
+                    "message": "정면을 보고 준비하세요",
+                }
 
+            # 왼쪽 시작
+            if neck_angle <= self.LEFT_ENTER_THRESHOLD:
+                transition_log = "READY -> LEFT_HOLD"
+                self.state = "LEFT_HOLD"
+                self.hold_count = 0
+                self.miss_count = 0
+                self.hold_start_time = time.monotonic()
+                self.left_hold_completed = False
+                
+        # ---------------- LEFT ----------------
+        elif self.state == "LEFT_HOLD":
+            if self.left_hold_completed:
+                if abs(neck_angle) <= self.CENTER_THRESHOLD:
+                    transition_log = "LEFT_HOLD -> CENTER_RETURN"
+                    self.state = "CENTER_RETURN"
+                    self.hold_count = 0
+                    self.miss_count = 0
+                    self.hold_start_time = None
+                    return {
+                        "status": "center_return",
+                        "message": "정면으로 돌아오세요",
+                    }
+                return {
+                    "status": "left_hold",
+                    "message": "정면으로 돌아오세요",
+                }
+
+            if neck_angle <= self.LEFT_HOLD_MIN_THRESHOLD:
+                self.hold_count += 1
+                self.miss_count = 0
+                self.left_values.append(abs(neck_angle))
+                if self.hold_start_time is None:
+                    self.hold_start_time = time.monotonic()
+                elapsed = time.monotonic() - self.hold_start_time
+
+                if elapsed >= 3.0:
+                    self.left_hold_completed = True
+                    return {
+                        "status": "left_done",
+                        "message": "정면으로 돌아오세요",
+                    }
+
+            else:
+                self.miss_count += 1
+                if self.miss_count > self.MAX_MISS_FRAMES:
+                    self.hold_count = 0
+                    self.miss_count = 0
+                    self.left_values = []
+                    self.hold_start_time = None
+
+            return {
+                "status": "left_hold",
+                "message": "고개를 왼쪽으로 돌리고 유지하세요",
+            }
+
+        # ---------------- CENTER RETURN ----------------
+        elif self.state == "CENTER_RETURN":
+            if neck_angle >= self.RIGHT_ENTER_THRESHOLD:
+                transition_log = "CENTER_RETURN -> RIGHT_HOLD"
+                self.state = "RIGHT_HOLD"
+                self.hold_count = 0
+                self.miss_count = 0
+                self.hold_start_time = None
+                return {
+                    "status": "center_return",
+                    "message": "고개를 오른쪽으로 돌리고 유지하세요",
+                }
+
+            return {
+                "status": "center_return",
+                "message": "정면으로 돌아오세요",
+            }
+
+        # ---------------- RIGHT ----------------
+        elif self.state == "RIGHT_HOLD":
+
+            if neck_angle >= self.RIGHT_HOLD_MAX_THRESHOLD:
+                self.hold_count += 1
+                self.miss_count = 0
+                self.right_values.append(abs(neck_angle))
+                if self.hold_start_time is None:
+                    self.hold_start_time = time.monotonic()
+                elapsed = time.monotonic() - self.hold_start_time
+
+                if elapsed >= 3.0:
+                    transition_log = "RIGHT_HOLD -> DONE"
+                    self.state = "DONE"
+
+            else:
+                self.miss_count += 1
+                if self.miss_count > self.MAX_MISS_FRAMES:
+                    self.hold_count = 0
+                    self.miss_count = 0
+                    self.right_values = []
+                    self.hold_start_time = None
+
+            return {
+                "status": "right_hold",
+                "message": "고개를 오른쪽으로 돌리고 유지하세요",
+            }
+
+        # ---------------- DONE ----------------
+        if self.state == "DONE":
+            if transition_log:
+                _neck_rom_logger.info("[NECK_ROM] transition %s", transition_log)
+            left_max = float(np.mean(self.left_values)) if self.left_values else 0
+            right_max = float(np.mean(self.right_values)) if self.right_values else 0
+            return {
+                "mode": "MEASURE",
+                "stage": "NECK_ROM",
+                "status": "finished",
+                "message": "목 가동범위 검사가 완료되었습니다",
+                "neck_left_max": float(left_max),
+                "neck_right_max": float(right_max),
+                "neck_diff": float(abs(left_max - right_max)),
+                "compensation_detected": bool(self.compensation_detected),
+            }
+
+        if transition_log:
+            _neck_rom_logger.info("[NECK_ROM] transition %s", transition_log)
+            
+            
+            
+            
+            
+            
+# ----------------------------------------------------------------------------------------------------------------------------------------
+# 운동별 코칭 프로세서
 # 프레임마다 들어오는 feature를 모아서 → 1회 수행 감지 → DTW → 점수 반환
+# ----------------------------------------------------------------------------------------------------------------------------------------
 
 # ----------버드독 프로세서---------------------------------------------------------------
 class BirdDogDTWProcessor(BaseProcessor):
-    def __init__(self, dtw_engine):
+    def __init__(self, dtw_engine, target_reps: int = 3):
         self.dtw_engine = dtw_engine # reference JSON + DTW 알고리즘 포함된 객체 -> compare() -> 점수도출
         self.buffer = [] # 프레임마다 feature 저장
         self.prev_signal = None # 이전 프레임의 움직임 값 저장
@@ -512,6 +873,13 @@ class BirdDogDTWProcessor(BaseProcessor):
         self.rep_score_count = 0
         self.rep_avg_similarity = None
         self.motion_started = False
+        self.target_reps = int(target_reps)
+        self.feedback_router = RealTimeFeedbackRouter()
+        self.session_summary = SessionFeedbackSummary()
+        self.exercise_type = "bird_dog"
+        self.csv_logger = DtwFrameCsvLogger(self.exercise_type)
+        self.session_finished = False
+        self._last_obs_ts = time.time()
         
     def extract_mp_features(self, pts):
         return get_bird_dog_features_mp(pts)
@@ -524,15 +892,29 @@ class BirdDogDTWProcessor(BaseProcessor):
         return max(right_arm + left_leg, left_arm + right_leg) # 둘 중 하나가 올라가면 동작 발생 
     
     def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
-        logger.warning("[BIRD_DOG PROCESS] entered | mp_features=%s", mp_features)
+        if self.session_finished:
+            result = {
+                "mode": "BIRD_DOG_DTW",
+                "status": "session_finished",
+                "rep_count": self.rep_index,
+                "feedback": "세트가 종료되었습니다.",
+                "accuracy_pct": self.last_live_similarity,
+                "buffer_len": len(self.buffer),
+            }
+            self.csv_logger.log(result)
+            return result
+        logger.debug("[BIRD_DOG PROCESS] entered | mp_features=%s", mp_features)
         if mp_features is None:
-            return {
+            result = {
                 "mode": "BIRD_DOG_DTW",
                 "status": "waiting",
                 "feedback": "자세를 인식 중입니다.",
                 "rep_count": self.rep_index,
                 "accuracy_pct": self.last_live_similarity,
+                "buffer_len": len(self.buffer),
             }
+            self.csv_logger.log(result)
+            return result
 
         current = tuple(round(v, 3) for v in mp_features)
         prev = tuple(round(v, 3) for v in self.buffer[-1]) if self.buffer else None
@@ -546,35 +928,67 @@ class BirdDogDTWProcessor(BaseProcessor):
             min_frames=12,
             live_window=30,
         )
-        print(
-            "[BIRD_DOG LIVE]",
-            "buffer_len=", len(self.buffer),
-            "live_similarity=", live_result["live_similarity"],
-            "cost=", live_result["cost"],
-        )
-
         live_similarity = live_result["live_similarity"]
         if live_similarity is not None:
-            print(
-                f"[DTW] seq_len={len(self.buffer)} | sim={live_similarity} | cost={live_result['cost']:.3f} | dir={live_result['direction_used']}"
+            self.last_live_similarity = live_similarity
+
+        now_ts = time.time()
+        dt_sec = max(0.0, now_ts - self._last_obs_ts)
+        self._last_obs_ts = now_ts
+        motion_a = float(mp_features[2] + mp_features[3])
+        motion_b = float(mp_features[4] + mp_features[5])
+        denom = max(abs(motion_a) + abs(motion_b), 1e-6)
+        if live_similarity is not None:
+            compare_payload = {
+                "phase": live_result.get("phase", "unknown"),
+                "motion_similarity": live_result.get("motion_similarity"),
+                "posture_similarity": live_result.get("posture_similarity"),
+                "feature_errors": live_result.get("feature_errors", {}),
+                "main_error_feature": live_result.get("main_error_feature"),
+                "ref_progress": live_result.get("ref_progress"),
+                "pair_a_error": live_result.get("pair_a_error"),
+                "pair_b_error": live_result.get("pair_b_error"),
+                "movement_direction": live_result.get("movement_direction"),
+            }
+            feedback_packet = self.feedback_router.process(
+                self.exercise_type, compare_payload, now_ts
+            )
+            self.session_summary.observe(
+                self.exercise_type, feedback_packet["all_issues"], dt_sec
             )
         else:
-            print(f"[DTW] seq_len={len(self.buffer)} | sim=None (waiting for min_frames)")
-        if live_similarity is not None:
-            self.last_live_similarity = live_similarity
+            feedback_packet = {
+                "exercise_type": self.exercise_type,
+                "feedback": None,
+                "issue": None,
+                "all_issues": [],
+            }
+        instant_feedback = feedback_packet["feedback"] or "동작 분석 중입니다."
 
         signal = self._get_signal(mp_features)
 
         if self.prev_signal is None:
             self.prev_signal = signal
-            return {
+            result = {
                 "mode": "BIRD_DOG_DTW",
                 "status": "running",
                 "rep_count": self.rep_index,
-                "feedback": "버드독 동작을 수행해주세요.",
+                "feedback": instant_feedback if instant_feedback else "버드독 동작을 수행해주세요.",
                 "accuracy_pct": self.last_live_similarity,
                 "similarity": self.last_live_similarity,
+                "buffer_len": len(self.buffer),
+                "mp_features": list(mp_features) if mp_features is not None else None,
+                "live_result": live_result,
+                "compare_payload": compare_payload if live_similarity is not None else None,
+                "feedback_packet": feedback_packet,
+                "motion_similarity": live_result.get("motion_similarity"),
+                "posture_similarity": live_result.get("posture_similarity"),
+                "phase": live_result.get("phase"),
+                "main_error_feature": live_result.get("main_error_feature"),
+                "feature_errors": live_result.get("feature_errors", {}),
             }
+            self.csv_logger.log(result)
+            return result
 
         if signal > self.prev_signal + 3:
             self.state = "up"
@@ -632,7 +1046,24 @@ class BirdDogDTWProcessor(BaseProcessor):
                 "final_score": compare_result["score"],      # 나중에 필요하면 사용
                 "cost": compare_result["cost"],
                 "feedback": f"{self.rep_index + 1}회 수행 완료",
+                "buffer_len": len(self.buffer),
+                "mp_features": list(mp_features) if mp_features is not None else None,
+                "live_result": live_result,
+                "compare_payload": compare_payload if live_similarity is not None else None,
+                "feedback_packet": feedback_packet,
+                "motion_similarity": live_result.get("motion_similarity"),
+                "posture_similarity": live_result.get("posture_similarity"),
+                "phase": live_result.get("phase"),
+                "main_error_feature": live_result.get("main_error_feature"),
+                "feature_errors": live_result.get("feature_errors", {}),
             }
+
+            if (self.rep_index + 1) >= self.target_reps:
+                final_summary = self.session_summary.finalize(top_k=3)
+                result["session_finished"] = True
+                result["session_summary"] = final_summary
+                result["session_summary_lines"] = format_top3_text(final_summary)
+                self.session_finished = True
 
             self.rep_index += 1
             self.buffer = []
@@ -642,23 +1073,56 @@ class BirdDogDTWProcessor(BaseProcessor):
             self.rep_score_sum = 0.0
             self.rep_score_count = 0
             self.motion_started = False
-            print("[BIRD_DOG SEND]", self.last_live_similarity)
+            self.csv_logger.log(result)
             return result
 
-        return {
+        result = {
             "mode": "BIRD_DOG_DTW",
             "status": "running",
             "rep_count": self.rep_index,
-            "feedback": "동작 분석 중입니다.",
+            "feedback": instant_feedback,
             "accuracy_pct": self.last_live_similarity,
             "similarity": self.last_live_similarity,
+            "buffer_len": len(self.buffer),
+            "mp_features": list(mp_features) if mp_features is not None else None,
+            "live_result": live_result,
+            "compare_payload": compare_payload if live_similarity is not None else None,
+            "feedback_packet": feedback_packet,
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "phase": live_result.get("phase"),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "feature_errors": live_result.get("feature_errors", {}),
         }
+        self.csv_logger.log(result)
+        return result
 
 # ----------버드독DTW---------------------------------------------------------------
 class BirdDogDTW:
+    FEATURE_NAMES = (
+        "trunk",
+        "pelvic",
+        "right_arm",
+        "left_leg",
+        "left_arm",
+        "right_leg",
+        "right_arm_h_err",
+        "left_leg_h_err",
+        "left_arm_h_err",
+        "right_leg_h_err",
+        "right_elbow_angle",
+        "left_elbow_angle",
+        "left_knee_angle",
+        "right_knee_angle",
+    )
+    MOTION_INDEXES = (2, 3, 4, 5)
+    POSTURE_INDEXES = (0, 1, 6, 7, 8, 9, 10, 11, 12, 13)
+
     def __init__(self, ref_path: str):
         self.ref_seq = self._load_reference(ref_path)
         self.feat_min, self.feat_max = self._get_minmax(self.ref_seq)
+        self.ref_norm = self._normalize(self.ref_seq)
+        self.ref_signal = self._motion_signal(self.ref_seq)
 
     def _load_reference(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
@@ -672,23 +1136,78 @@ class BirdDogDTW:
         denom = np.maximum(self.feat_max - self.feat_min, 1e-6)
         return (seq - self.feat_min) / denom
 
-    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
-        # 실시간 similarity용: 수평/관절도 반영
+    def _frame_error_vector(self, a: np.ndarray, b: np.ndarray):
         weights = np.array([
-            0.7, 0.7,                 # trunk, pelvic
-            1.2, 1.2, 1.2, 1.2,       # motion
-            1.0, 1.0, 1.0, 1.0,       # horizontal
-            1.2, 1.2, 1.2, 1.2        # joint
+            0.8, 0.8,
+            1.3, 1.3, 1.3, 1.3,
+            1.1, 1.1, 1.1, 1.1,
+            1.3, 1.3, 1.3, 1.3,
         ], dtype=np.float32)
-        return np.linalg.norm((a - b) * weights)
+        return np.abs(a - b) * weights
 
-    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray):
+    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
+        return float(np.linalg.norm(self._frame_error_vector(a, b)))
+
+    def _motion_signal(self, seq: np.ndarray):
+        if len(seq) == 0:
+            return np.array([], dtype=np.float32)
+        return np.maximum(seq[:, 2] + seq[:, 3], seq[:, 4] + seq[:, 5])
+
+    def _estimate_phase(self, user_seq: np.ndarray):
+        signal = self._motion_signal(user_seq)
+        if len(signal) == 0:
+            return "unknown"
+        current = float(signal[-1])
+        sig_min = float(np.min(signal))
+        sig_max = float(np.max(signal))
+        span = max(sig_max - sig_min, 1e-6)
+        progress = float(np.clip((current - sig_min) / span, 0.0, 1.0))
+        if len(signal) >= 4:
+            slope = float(np.mean(np.diff(signal[-4:])))
+        elif len(signal) >= 2:
+            slope = float(signal[-1] - signal[0]) / max(len(signal) - 1, 1)
+        else:
+            slope = 0.0
+
+        active_a = float(user_seq[-1, 2] + user_seq[-1, 3])
+        active_b = float(user_seq[-1, 4] + user_seq[-1, 5])
+        phase = "transition"
+        if progress >= 0.82:
+            phase = "peak"
+        elif progress <= 0.20 and slope <= 0.5:
+            phase = "ready"
+        elif slope >= 0.75:
+            phase = "raising"
+        elif slope <= -0.75:
+            phase = "lowering"
+
+        if abs(active_a - active_b) <= 6.0:
+            direction = "balanced"
+        else:
+            direction = "pair_a" if active_a > active_b else "pair_b"
+        return phase, direction
+
+    def _phase_penalty(self, phase: str, ref_progress: float):
+        if phase == "peak":
+            return 0.0 if ref_progress >= 0.70 else 0.12
+        if phase == "raising":
+            return 0.18 if ref_progress > 0.90 else 0.0
+        if phase == "lowering":
+            return 0.12 if ref_progress < 0.12 or ref_progress > 0.95 else 0.0
+        if phase == "ready":
+            return 0.08 if ref_progress > 0.30 else 0.0
+        return 0.0
+
+    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray, band_ratio: float = 0.3):
         n, m = len(seq1), len(seq2)
         dp = np.full((n + 1, m + 1), np.inf, dtype=np.float32)
         dp[0, 0] = 0.0
+        band = max(4, int(max(n, m) * band_ratio))
 
         for i in range(1, n + 1):
-            for j in range(1, m + 1):
+            j_start = max(1, i - band)
+            j_end = min(m, i + band)
+            for j in range(j_start, j_end + 1):
                 cost = self._frame_dist(seq1[i - 1], seq2[j - 1])
                 dp[i, j] = cost + min(
                     dp[i - 1, j],
@@ -697,9 +1216,13 @@ class BirdDogDTW:
                 )
 
         i, j = n, m
+        if not np.isfinite(dp[i, j]):
+            return None
+        path = []
         path_len = 0
         while i > 0 and j > 0:
             path_len += 1
+            path.append((i - 1, j - 1))
             candidates = [
                 (dp[i - 1, j], i - 1, j),
                 (dp[i, j - 1], i, j - 1),
@@ -707,10 +1230,15 @@ class BirdDogDTW:
             ]
             _, i, j = min(candidates, key=lambda x: x[0])
 
+        path.reverse()
         path_len = max(path_len, 1)
         total_cost = float(dp[n, m])
         norm_cost = total_cost / path_len
-        return total_cost, norm_cost
+        return {
+            "total_cost": total_cost,
+            "norm_cost": norm_cost,
+            "path": path,
+        }
 
     def _flip_left_right(self, seq: np.ndarray):
         flipped = seq.copy()
@@ -729,6 +1257,79 @@ class BirdDogDTW:
 
         return flipped
 
+    def _compute_path_metrics(self, ref_seq: np.ndarray, user_seq: np.ndarray, path):
+        feature_sums = np.zeros(len(self.FEATURE_NAMES), dtype=np.float32)
+        motion_sum = 0.0
+        posture_sum = 0.0
+        for ref_idx, user_idx in path:
+            err_vec = self._frame_error_vector(ref_seq[ref_idx], user_seq[user_idx])
+            feature_sums += err_vec
+            motion_sum += float(np.mean(err_vec[list(self.MOTION_INDEXES)]))
+            posture_sum += float(np.mean(err_vec[list(self.POSTURE_INDEXES)]))
+
+        steps = max(len(path), 1)
+        feature_mean = feature_sums / steps
+        feature_errors = {
+            name: float(feature_mean[idx])
+            for idx, name in enumerate(self.FEATURE_NAMES)
+        }
+        candidate_indexes = (0, 1, 6, 7, 8, 9, 10, 11, 12, 13)
+        main_idx = max(candidate_indexes, key=lambda idx: feature_errors[self.FEATURE_NAMES[idx]])
+        local_ref_idx = path[-1][0] if path else 0
+        local_ref_progress = float(local_ref_idx / max(len(ref_seq) - 1, 1))
+        pair_a_error = float(np.mean([feature_errors["right_arm"], feature_errors["left_leg"]]))
+        pair_b_error = float(np.mean([feature_errors["left_arm"], feature_errors["right_leg"]]))
+        return {
+            "feature_errors": feature_errors,
+            "motion_cost": float(motion_sum / steps),
+            "posture_cost": float(posture_sum / steps),
+            "main_error_feature": self.FEATURE_NAMES[main_idx],
+            "local_ref_progress": local_ref_progress,
+            "pair_a_error": pair_a_error,
+            "pair_b_error": pair_b_error,
+        }
+
+    def _find_best_subsequence(self, user_seq: np.ndarray):
+        user_len = len(user_seq)
+        ref_len = len(self.ref_norm)
+        if user_len == 0 or ref_len == 0:
+            return None
+        min_len = max(10, user_len - 8)
+        max_len = min(ref_len, user_len + 8)
+        phase, direction = self._estimate_phase(user_seq)
+        best = None
+        for direction_used, ref_raw in (
+            ("original", self.ref_seq),
+            ("flipped", self._flip_left_right(self.ref_seq)),
+        ):
+            ref_norm = self._normalize(ref_raw)
+            for cand_len in range(min_len, max_len + 1):
+                for start in range(0, ref_len - cand_len + 1):
+                    end = start + cand_len
+                    ref_slice = ref_norm[start:end]
+                    dtw_result = self._dtw(ref_slice, user_seq)
+                    if dtw_result is None:
+                        continue
+                    metrics = self._compute_path_metrics(ref_slice, user_seq, dtw_result["path"])
+                    penalized_cost = dtw_result["norm_cost"] + self._phase_penalty(phase, metrics["local_ref_progress"])
+                    global_ref_idx = start + (dtw_result["path"][-1][0] if dtw_result["path"] else 0)
+                    candidate = {
+                        "phase": phase,
+                        "direction": direction,
+                        "direction_used": direction_used,
+                        "start": start,
+                        "end": end,
+                        "norm_cost": dtw_result["norm_cost"],
+                        "total_cost": dtw_result["total_cost"],
+                        "penalized_cost": penalized_cost,
+                        "path": dtw_result["path"],
+                        "ref_progress": float(global_ref_idx / max(ref_len - 1, 1)),
+                        **metrics,
+                    }
+                    if best is None or candidate["penalized_cost"] < best["penalized_cost"]:
+                        best = candidate
+        return best
+
     def get_live_similarity(self, partial_user_seq, min_frames: int = 12, live_window: int = 30):
         user_seq = np.array(partial_user_seq, dtype=np.float32)
 
@@ -737,63 +1338,77 @@ class BirdDogDTW:
                 "live_similarity": None,
                 "cost": None,
                 "direction_used": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": "unknown",
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
             }
 
-        # 최근 window만 사용
         live_seq = user_seq[-live_window:] if len(user_seq) > live_window else user_seq
         user = self._normalize(live_seq)
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {
+                "live_similarity": None,
+                "cost": None,
+                "direction_used": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": "unknown",
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
+            }
 
-        ref_len = len(self.ref_seq)
-        user_len = len(live_seq)
-        use_len = min(ref_len, user_len)
-
-        ref_partial_raw = self.ref_seq[:use_len]
-        ref_partial = self._normalize(ref_partial_raw)
-        user_partial = user[-use_len:]
-
-        _, cost_original = self._dtw(ref_partial, user_partial)
-
-        ref_flipped_raw = self._flip_left_right(self.ref_seq)[:use_len]
-        ref_flipped = self._normalize(ref_flipped_raw)
-        _, cost_flipped = self._dtw(ref_flipped, user_partial)
-
-        if cost_original <= cost_flipped:
-            best_cost = cost_original
-            used = "original"
-        else:
-            best_cost = cost_flipped
-            used = "flipped"
-
-        alpha_live = 3.0
-        live_similarity = max(0, min(100, round(100 - alpha_live * best_cost)))
+        motion_similarity = max(0, min(100, round(100 - 12.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 14.0 * best["posture_cost"], 2)))
+        live_similarity = round((motion_similarity * 0.5) + (posture_similarity * 0.5), 2)
 
         return {
             "live_similarity": live_similarity,
-            "cost": float(best_cost),
-            "direction_used": used,
+            "cost": float(best["norm_cost"]),
+            "direction_used": best["direction_used"],
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
+            "pair_a_error": best["pair_a_error"],
+            "pair_b_error": best["pair_b_error"],
+            "movement_direction": best["direction"],
         }
 
     # 나중에 최종 정확도용으로 남겨둘 compare
     def compare(self, user_seq):
         user_seq = np.array(user_seq, dtype=np.float32)
-
-        ref = self._normalize(self.ref_seq)
         user = self._normalize(user_seq)
-
-        _, norm_cost = self._dtw(ref, user)
-
-        alpha = 35.0
-        score = max(0, min(100, round(100 - alpha * norm_cost)))
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {"score": 0, "cost": None}
+        motion_similarity = max(0, min(100, round(100 - 12.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 14.0 * best["posture_cost"], 2)))
+        score = round((motion_similarity * 0.5) + (posture_similarity * 0.5), 2)
 
         return {
             "score": score,
-            "cost": float(norm_cost),
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
+            "pair_a_error": best["pair_a_error"],
+            "pair_b_error": best["pair_b_error"],
         }
         
 # ----------어깨거상운동(왼쪽)DTWProcessor---------------------------------------------------------------
 from app.services.dtw_feature_extractor import get_shoulder_front_raise_left_features_mp
 class ShoulderFrontRaiseLeftDTWProcessor(BaseProcessor):
-    def __init__(self, dtw_engine, mirror_input: bool = False):
+    def __init__(self, dtw_engine, mirror_input: bool = False, target_reps: int = 3):
         self.dtw_engine = dtw_engine
         self.buffer = []
         self.last_live_similarity = None
@@ -804,6 +1419,13 @@ class ShoulderFrontRaiseLeftDTWProcessor(BaseProcessor):
         self.raise_threshold = 110.0
         self.down_threshold = 90.0
         self.min_peak_angle = 110.0
+        self.target_reps = int(target_reps)
+        self.feedback_router = RealTimeFeedbackRouter()
+        self.session_summary = SessionFeedbackSummary()
+        self.exercise_type = "shoulder_front_raise"
+        self.csv_logger = DtwFrameCsvLogger(self.exercise_type)
+        self.session_finished = False
+        self._last_obs_ts = time.time()
 
     def extract_mp_features(self, pts):
         # 오른팔도 mirror_input=True로 frame을 뒤집어서
@@ -811,14 +1433,28 @@ class ShoulderFrontRaiseLeftDTWProcessor(BaseProcessor):
         return get_shoulder_front_raise_left_features_mp(pts)
 
     def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
+        if self.session_finished:
+            result = {
+                "mode": "SHOULDER_FRONT_RAISE_DTW",
+                "status": "session_finished",
+                "feedback": "세트가 종료되었습니다.",
+                "similarity": self.last_live_similarity,
+                "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
+            }
+            self.csv_logger.log(result)
+            return result
         if mp_features is None:
-            return {
+            result = {
                 "mode": "SHOULDER_FRONT_RAISE_DTW",
                 "status": "waiting",
                 "feedback": "자세를 인식 중입니다.",
                 "similarity": self.last_live_similarity,
                 "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
             }
+            self.csv_logger.log(result)
+            return result
 
         current = tuple(round(v, 3) for v in mp_features)
         prev = tuple(round(v, 3) for v in self.buffer[-1]) if self.buffer else None
@@ -836,7 +1472,23 @@ class ShoulderFrontRaiseLeftDTWProcessor(BaseProcessor):
         if live_similarity is not None:
             self.last_live_similarity = live_similarity
 
+        now_ts = time.time()
+        dt_sec = max(0.0, now_ts - self._last_obs_ts)
+        self._last_obs_ts = now_ts
+        compare_payload = {
+            "phase": live_result.get("phase", "unknown"),
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "feature_errors": live_result.get("feature_errors", {}),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "ref_progress": live_result.get("ref_progress"),
+        }
+        feedback_packet = self.feedback_router.process(self.exercise_type, compare_payload, now_ts)
+        self.session_summary.observe(self.exercise_type, feedback_packet["all_issues"], dt_sec)
+        instant_feedback = feedback_packet["feedback"] or "동작 분석 중입니다."
+
         left_arm_raise = float(mp_features[2])
+        rep_just_finished = False
         if self.rep_state == "down" and left_arm_raise >= self.raise_threshold:
             self.rep_state = "up"
             self.rep_peak_angle = left_arm_raise
@@ -846,24 +1498,55 @@ class ShoulderFrontRaiseLeftDTWProcessor(BaseProcessor):
             if left_arm_raise <= self.down_threshold:
                 if self.rep_peak_angle >= self.min_peak_angle:
                     self.rep_count += 1
+                    rep_just_finished = True
                 self.rep_state = "down"
                 self.rep_peak_angle = 0.0
 
-        return {
+        result = {
             "mode": "SHOULDER_FRONT_RAISE_DTW",
-            "status": "running",
-            "feedback": "동작 분석 중입니다.",
+            "status": "rep_finished" if rep_just_finished else "running",
+            "feedback": f"{self.rep_count}회 수행 완료" if rep_just_finished else instant_feedback,
             "similarity": self.last_live_similarity,
             "cost": live_result["cost"],
             "rep_count": self.rep_count,
+            "buffer_len": len(self.buffer),
+            "mp_features": list(mp_features) if mp_features is not None else None,
+            "live_result": live_result,
+            "compare_payload": compare_payload,
+            "feedback_packet": feedback_packet,
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "phase": live_result.get("phase"),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "feature_errors": live_result.get("feature_errors", {}),
         }
+        if rep_just_finished and self.rep_count >= self.target_reps:
+            final_summary = self.session_summary.finalize(top_k=3)
+            result["session_finished"] = True
+            result["session_summary"] = final_summary
+            result["session_summary_lines"] = format_top3_text(final_summary)
+            self.session_finished = True
+        self.csv_logger.log(result)
+        return result
 
         
 # ---------- 어깨거상운동(왼쪽) DTW -----------------------------------
 class ShoulderFrontRaiseLeftDTW:
+    FEATURE_NAMES = (
+        "trunk",
+        "shoulder_rise",
+        "arm_raise",
+        "elbow_angle",
+        "arm_horizontal_error",
+        "support_dist",
+    )
+    MOTION_INDEXES = (2, 4, 5)
+    POSTURE_INDEXES = (0, 1, 3)
+
     def __init__(self, ref_path: str):
         self.ref_seq = self._load_reference(ref_path)
         self.feat_min, self.feat_max = self._get_minmax(self.ref_seq)
+        self.ref_norm = self._normalize(self.ref_seq)
 
     def _load_reference(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
@@ -877,38 +1560,68 @@ class ShoulderFrontRaiseLeftDTW:
         denom = np.maximum(self.feat_max - self.feat_min, 1e-6)
         return (seq - self.feat_min) / denom
 
-    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
-        """
-        6개 feature
-        [
-            trunk,
-            shoulder_rise,
-            left_arm_raise,
-            left_elbow_angle,
-            left_arm_h_err,
-            support_dist,
-        ]
-        """
+    def _frame_error_vector(self, a: np.ndarray, b: np.ndarray):
         weights = np.array([
-            1.0,   # trunk
-            1.2,   # shoulder_rise
-            1.5,   # left_arm_raise
-            1.0,   # left_elbow_angle
-            1.2,   # left_arm_h_err
-            2.0,   # support_dist
+            1.2,
+            1.5,
+            1.8,
+            1.2,
+            1.4,
+            1.8,
         ], dtype=np.float32)
+        err = np.abs(a - b) * weights
+        err[5] *= 1.8
+        return err
 
-        diff = a - b
-        diff[5] *= 2.0   # support_dist 한 번 더 강화
-        return np.linalg.norm(diff * weights)
+    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
+        return float(np.linalg.norm(self._frame_error_vector(a, b)))
 
-    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray):
+    def _estimate_phase(self, user_seq: np.ndarray):
+        if len(user_seq) == 0:
+            return "unknown"
+        raise_vals = user_seq[:, 2]
+        current = float(raise_vals[-1])
+        vmin = float(np.min(raise_vals))
+        vmax = float(np.max(raise_vals))
+        progress = float(np.clip((current - vmin) / max(vmax - vmin, 1e-6), 0.0, 1.0))
+        if len(raise_vals) >= 4:
+            slope = float(np.mean(np.diff(raise_vals[-4:])))
+        elif len(raise_vals) >= 2:
+            slope = float(raise_vals[-1] - raise_vals[0]) / max(len(raise_vals) - 1, 1)
+        else:
+            slope = 0.0
+
+        if progress >= 0.84:
+            return "peak"
+        if progress <= 0.18 and slope <= 0.5:
+            return "ready"
+        if slope >= 1.0:
+            return "raising"
+        if slope <= -1.0:
+            return "lowering"
+        return "transition"
+
+    def _phase_penalty(self, phase: str, ref_progress: float):
+        if phase == "peak":
+            return 0.0 if ref_progress >= 0.72 else 0.15
+        if phase == "raising":
+            return 0.18 if ref_progress > 0.90 else 0.0
+        if phase == "lowering":
+            return 0.12 if ref_progress < 0.15 or ref_progress > 0.92 else 0.0
+        if phase == "ready":
+            return 0.08 if ref_progress > 0.28 else 0.0
+        return 0.0
+
+    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray, band_ratio: float = 0.3):
         n, m = len(seq1), len(seq2)
         dp = np.full((n + 1, m + 1), np.inf, dtype=np.float32)
         dp[0, 0] = 0.0
+        band = max(3, int(max(n, m) * band_ratio))
 
         for i in range(1, n + 1):
-            for j in range(1, m + 1):
+            j_start = max(1, i - band)
+            j_end = min(m, i + band)
+            for j in range(j_start, j_end + 1):
                 cost = self._frame_dist(seq1[i - 1], seq2[j - 1])
                 dp[i, j] = cost + min(
                     dp[i - 1, j],
@@ -917,9 +1630,13 @@ class ShoulderFrontRaiseLeftDTW:
                 )
 
         i, j = n, m
+        if not np.isfinite(dp[i, j]):
+            return None
+        path = []
         path_len = 0
         while i > 0 and j > 0:
             path_len += 1
+            path.append((i - 1, j - 1))
             candidates = [
                 (dp[i - 1, j], i - 1, j),
                 (dp[i, j - 1], i, j - 1),
@@ -927,10 +1644,75 @@ class ShoulderFrontRaiseLeftDTW:
             ]
             _, i, j = min(candidates, key=lambda x: x[0])
 
+        path.reverse()
         path_len = max(path_len, 1)
         total_cost = float(dp[n, m])
         norm_cost = total_cost / path_len
-        return total_cost, norm_cost
+        return {
+            "total_cost": total_cost,
+            "norm_cost": norm_cost,
+            "path": path,
+        }
+
+    def _compute_path_metrics(self, ref_seq: np.ndarray, user_seq: np.ndarray, path):
+        feature_sums = np.zeros(len(self.FEATURE_NAMES), dtype=np.float32)
+        motion_sum = 0.0
+        posture_sum = 0.0
+        for ref_idx, user_idx in path:
+            err_vec = self._frame_error_vector(ref_seq[ref_idx], user_seq[user_idx])
+            feature_sums += err_vec
+            motion_sum += float(np.mean(err_vec[list(self.MOTION_INDEXES)]))
+            posture_sum += float(np.mean(err_vec[list(self.POSTURE_INDEXES)]))
+
+        steps = max(len(path), 1)
+        feature_mean = feature_sums / steps
+        feature_errors = {
+            name: float(feature_mean[idx])
+            for idx, name in enumerate(self.FEATURE_NAMES)
+        }
+        main_idx = max(self.POSTURE_INDEXES, key=lambda idx: feature_errors[self.FEATURE_NAMES[idx]])
+        local_ref_idx = path[-1][0] if path else 0
+        local_ref_progress = float(local_ref_idx / max(len(ref_seq) - 1, 1))
+        return {
+            "feature_errors": feature_errors,
+            "motion_cost": float(motion_sum / steps),
+            "posture_cost": float(posture_sum / steps),
+            "main_error_feature": self.FEATURE_NAMES[main_idx],
+            "local_ref_progress": local_ref_progress,
+        }
+
+    def _find_best_subsequence(self, user_seq: np.ndarray):
+        user_len = len(user_seq)
+        ref_len = len(self.ref_norm)
+        if user_len == 0 or ref_len == 0:
+            return None
+        min_len = max(8, user_len - 6)
+        max_len = min(ref_len, user_len + 6)
+        phase = self._estimate_phase(user_seq)
+        best = None
+        for cand_len in range(min_len, max_len + 1):
+            for start in range(0, ref_len - cand_len + 1):
+                end = start + cand_len
+                ref_slice = self.ref_norm[start:end]
+                dtw_result = self._dtw(ref_slice, user_seq)
+                if dtw_result is None:
+                    continue
+                metrics = self._compute_path_metrics(ref_slice, user_seq, dtw_result["path"])
+                penalized_cost = dtw_result["norm_cost"] + self._phase_penalty(phase, metrics["local_ref_progress"])
+                global_ref_idx = start + (dtw_result["path"][-1][0] if dtw_result["path"] else 0)
+                candidate = {
+                    "phase": phase,
+                    "start": start,
+                    "end": end,
+                    "norm_cost": dtw_result["norm_cost"],
+                    "total_cost": dtw_result["total_cost"],
+                    "penalized_cost": penalized_cost,
+                    "ref_progress": float(global_ref_idx / max(ref_len - 1, 1)),
+                    **metrics,
+                }
+                if best is None or candidate["penalized_cost"] < best["penalized_cost"]:
+                    best = candidate
+        return best
 
     def get_live_similarity(self, partial_user_seq, min_frames: int = 10, live_window: int = 30):
         user_seq = np.array(partial_user_seq, dtype=np.float32)
@@ -939,32 +1721,67 @@ class ShoulderFrontRaiseLeftDTW:
             return {
                 "live_similarity": None,
                 "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": "unknown",
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
             }
 
         live_seq = user_seq[-live_window:] if len(user_seq) > live_window else user_seq
         user = self._normalize(live_seq)
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {
+                "live_similarity": None,
+                "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": self._estimate_phase(live_seq),
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
+            }
 
-        ref_len = len(self.ref_seq)
-        user_len = len(live_seq)
-        use_len = min(ref_len, user_len)
-
-        ref_partial_raw = self.ref_seq[:use_len]
-        ref_partial = self._normalize(ref_partial_raw)
-        user_partial = user[-use_len:]
-
-        _, norm_cost = self._dtw(ref_partial, user_partial)
-
-        alpha_live = 12.0
-        live_similarity = max(0, min(100, round(100 - alpha_live * norm_cost, 2)))
+        motion_similarity = max(0, min(100, round(100 - 14.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        live_similarity = round((motion_similarity * 0.5) + (posture_similarity * 0.5), 2)
 
         return {
             "live_similarity": live_similarity,
-            "cost": float(norm_cost),
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
+        }
+
+    def compare(self, user_seq):
+        user_seq = np.array(user_seq, dtype=np.float32)
+        user = self._normalize(user_seq)
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {"score": 0, "cost": None}
+        motion_similarity = max(0, min(100, round(100 - 14.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        score = round((motion_similarity * 0.5) + (posture_similarity * 0.5), 2)
+        return {
+            "score": score,
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
         }
 
 # ----------무릎운동(오른쪽)DTWProcessor---------------------------------------------------------------
 class KneeRaiseRightDTWProcessor(BaseProcessor):
-    def __init__(self, dtw_engine, use_left_flip: bool = False):
+    def __init__(self, dtw_engine, use_left_flip: bool = False, target_reps: int = 3):
         self.dtw_engine = dtw_engine
         self.buffer = []
         self.last_live_similarity = None
@@ -975,6 +1792,13 @@ class KneeRaiseRightDTWProcessor(BaseProcessor):
         self.raise_threshold = 150.0
         self.down_threshold = 160.0
         self.min_peak_flexion = 150.0
+        self.target_reps = int(target_reps)
+        self.feedback_router = RealTimeFeedbackRouter()
+        self.session_summary = SessionFeedbackSummary()
+        self.exercise_type = "knee_raise_right"
+        self.csv_logger = DtwFrameCsvLogger(self.exercise_type)
+        self.session_finished = False
+        self._last_obs_ts = time.time()
 
     def extract_mp_features(self, pts):
         if self.use_left_flip:
@@ -982,15 +1806,30 @@ class KneeRaiseRightDTWProcessor(BaseProcessor):
         return get_knee_raise_right_features_mp(pts)
 
     def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
+        if self.session_finished:
+            result = {
+                "mode": "KNEE_RAISE_DTW",
+                "status": "session_finished",
+                "feedback": "세트가 종료되었습니다.",
+                "similarity": self.last_live_similarity,
+                "accuracy_pct": self.last_live_similarity,
+                "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
+            }
+            self.csv_logger.log(result)
+            return result
         if mp_features is None:
-            return {
+            result = {
                 "mode": "KNEE_RAISE_DTW",
                 "status": "waiting",
                 "feedback": "자세를 인식 중입니다.",
                 "similarity": self.last_live_similarity,
                 "accuracy_pct": self.last_live_similarity,
                 "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
             }
+            self.csv_logger.log(result)
+            return result
 
         current = tuple(round(v, 3) for v in mp_features)
         prev = tuple(round(v, 3) for v in self.buffer[-1]) if self.buffer else None
@@ -1008,7 +1847,23 @@ class KneeRaiseRightDTWProcessor(BaseProcessor):
         if live_similarity is not None:
             self.last_live_similarity = live_similarity
 
+        now_ts = time.time()
+        dt_sec = max(0.0, now_ts - self._last_obs_ts)
+        self._last_obs_ts = now_ts
+        compare_payload = {
+            "phase": live_result.get("phase", "unknown"),
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "feature_errors": live_result.get("feature_errors", {}),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "ref_progress": live_result.get("ref_progress"),
+        }
+        feedback_packet = self.feedback_router.process(self.exercise_type, compare_payload, now_ts)
+        self.session_summary.observe(self.exercise_type, feedback_packet["all_issues"], dt_sec)
+        instant_feedback = feedback_packet["feedback"] or "동작 분석 중입니다."
+
         hip_flexion = float(mp_features[2])
+        rep_just_finished = False
         if self.rep_state == "down" and hip_flexion <= self.raise_threshold:
             self.rep_state = "up"
             self.rep_peak_flexion = hip_flexion
@@ -1018,24 +1873,57 @@ class KneeRaiseRightDTWProcessor(BaseProcessor):
             if hip_flexion >= self.down_threshold:
                 if self.rep_peak_flexion <= self.min_peak_flexion:
                     self.rep_count += 1
+                    rep_just_finished = True
                 self.rep_state = "down"
                 self.rep_peak_flexion = 180.0
 
-        return {
+        result = {
             "mode": "KNEE_RAISE_DTW",
-            "status": "running",
-            "feedback": "동작 분석 중입니다.",
+            "status": "rep_finished" if rep_just_finished else "running",
+            "feedback": f"{self.rep_count}회 수행 완료" if rep_just_finished else instant_feedback,
             "similarity": self.last_live_similarity,
             "accuracy_pct": self.last_live_similarity,
             "cost": live_result["cost"],
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "phase": live_result.get("phase"),
             "rep_count": self.rep_count,
+            "main_error_feature": live_result.get("main_error_feature"),
+            "feature_errors": live_result.get("feature_errors", {}),
+            "buffer_len": len(self.buffer),
+            "mp_features": list(mp_features) if mp_features is not None else None,
+            "live_result": live_result,
+            "compare_payload": compare_payload,
+            "feedback_packet": feedback_packet,
         }
+        if rep_just_finished and self.rep_count >= self.target_reps:
+            final_summary = self.session_summary.finalize(top_k=3)
+            result["session_finished"] = True
+            result["session_summary"] = final_summary
+            result["session_summary_lines"] = format_top3_text(final_summary)
+            self.session_finished = True
+        self.csv_logger.log(result)
+        return result
         
 # ----------무릎운동(오른쪽)DTW -----------------------------------
 class KneeRaiseRightDTW:
+    FEATURE_NAMES = (
+        "trunk",
+        "pelvic",
+        "hip_flexion",
+        "knee_angle",
+        "ankle_height",
+    )
+    MOTION_INDEXES = (2, 4)
+    POSTURE_INDEXES = (0, 1, 3)
+
     def __init__(self, ref_path: str):
         self.ref_seq = self._load_reference(ref_path)
         self.feat_min, self.feat_max = self._get_minmax(self.ref_seq)
+        self.ref_norm = self._normalize(self.ref_seq)
+        self.ref_motion = self.ref_seq[:, 4]
+        self.ref_motion_min = float(np.min(self.ref_motion)) if len(self.ref_motion) else 0.0
+        self.ref_motion_max = float(np.max(self.ref_motion)) if len(self.ref_motion) else 1.0
 
     def _load_reference(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
@@ -1049,34 +1937,76 @@ class KneeRaiseRightDTW:
         denom = np.maximum(self.feat_max - self.feat_min, 1e-6)
         return (seq - self.feat_min) / denom
 
-    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
-        """
-        5개 feature
-        [
-            trunk,
-            pelvic,
-            right_hip_flexion,
-            right_knee_angle,
-            right_ankle_rel_y,
-        ]
-        """
+    def _frame_error_vector(self, a: np.ndarray, b: np.ndarray):
         weights = np.array([
-            2.7,   # trunk
+            2.4,   # trunk
             1.8,   # pelvic
-            1.5,   # hip_flexion
-            1.7,   # knee_angle
-            1.7,   # ankle_rel_y
+            1.8,   # hip_flexion
+            2.2,   # knee_angle
+            1.8,   # ankle_rel_y
         ], dtype=np.float32)
+        return np.abs(a - b) * weights
 
-        return np.linalg.norm((a - b) * weights)
+    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
+        return float(np.linalg.norm(self._frame_error_vector(a, b)))
 
-    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray):
+    def _estimate_phase(self, user_seq: np.ndarray):
+        if len(user_seq) == 0:
+            return "unknown"
+
+        motion = user_seq[:, 4]
+        current = float(motion[-1])
+        user_min = float(np.min(motion))
+        user_max = float(np.max(motion))
+        motion_floor = min(user_min, self.ref_motion_min)
+        motion_span = max(max(user_max, self.ref_motion_max) - motion_floor, 1e-6)
+        progress = float(np.clip((current - motion_floor) / motion_span, 0.0, 1.0))
+
+        if len(motion) >= 4:
+            slope = float(np.mean(np.diff(motion[-4:])))
+        elif len(motion) >= 2:
+            slope = float(motion[-1] - motion[0]) / max(len(motion) - 1, 1)
+        else:
+            slope = 0.0
+
+        if progress >= 0.82:
+            phase = "peak"
+        elif progress <= 0.18 and slope <= 0.5:
+            phase = "ready"
+        elif slope >= 1.0:
+            phase = "raising"
+        elif slope <= -1.0:
+            phase = "lowering"
+        else:
+            phase = "transition"
+
+        return phase
+
+    def _phase_penalty(self, phase: str, ref_progress: float):
+        if phase == "peak":
+            return 0.0 if ref_progress >= 0.72 else 0.18
+        if phase == "raising":
+            if ref_progress > 0.88:
+                return 0.20
+            return 0.0
+        if phase == "lowering":
+            if ref_progress < 0.18 or ref_progress > 0.92:
+                return 0.12
+            return 0.0
+        if phase == "ready":
+            return 0.0 if ref_progress <= 0.28 else 0.10
+        return 0.0
+
+    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray, band_ratio: float = 0.3):
         n, m = len(seq1), len(seq2)
         dp = np.full((n + 1, m + 1), np.inf, dtype=np.float32)
         dp[0, 0] = 0.0
+        band = max(3, int(max(n, m) * band_ratio))
 
         for i in range(1, n + 1):
-            for j in range(1, m + 1):
+            j_start = max(1, i - band)
+            j_end = min(m, i + band)
+            for j in range(j_start, j_end + 1):
                 cost = self._frame_dist(seq1[i - 1], seq2[j - 1])
                 dp[i, j] = cost + min(
                     dp[i - 1, j],
@@ -1085,9 +2015,14 @@ class KneeRaiseRightDTW:
                 )
 
         i, j = n, m
+        if not np.isfinite(dp[i, j]):
+            return None
+
+        path = []
         path_len = 0
         while i > 0 and j > 0:
             path_len += 1
+            path.append((i - 1, j - 1))
             candidates = [
                 (dp[i - 1, j], i - 1, j),
                 (dp[i, j - 1], i, j - 1),
@@ -1095,10 +2030,78 @@ class KneeRaiseRightDTW:
             ]
             _, i, j = min(candidates, key=lambda x: x[0])
 
+        path.reverse()
         path_len = max(path_len, 1)
         total_cost = float(dp[n, m])
         norm_cost = total_cost / path_len
-        return total_cost, norm_cost
+        return {
+            "total_cost": total_cost,
+            "norm_cost": norm_cost,
+            "path": path,
+        }
+
+    def _compute_path_metrics(self, ref_seq: np.ndarray, user_seq: np.ndarray, path):
+        feature_sums = np.zeros(len(self.FEATURE_NAMES), dtype=np.float32)
+        motion_sum = 0.0
+        posture_sum = 0.0
+        for ref_idx, user_idx in path:
+            err_vec = self._frame_error_vector(ref_seq[ref_idx], user_seq[user_idx])
+            feature_sums += err_vec
+            motion_sum += float(np.mean(err_vec[list(self.MOTION_INDEXES)]))
+            posture_sum += float(np.mean(err_vec[list(self.POSTURE_INDEXES)]))
+
+        steps = max(len(path), 1)
+        feature_mean = feature_sums / steps
+        feature_errors = {
+            name: float(feature_mean[idx])
+            for idx, name in enumerate(self.FEATURE_NAMES)
+        }
+        main_idx = max(self.POSTURE_INDEXES, key=lambda idx: feature_errors[self.FEATURE_NAMES[idx]])
+        ref_end_idx = path[-1][0] if path else 0
+        ref_progress = float(ref_end_idx / max(len(ref_seq) - 1, 1))
+        return {
+            "feature_errors": feature_errors,
+            "motion_cost": float(motion_sum / steps),
+            "posture_cost": float(posture_sum / steps),
+            "main_error_feature": self.FEATURE_NAMES[main_idx],
+            "local_ref_progress": ref_progress,
+        }
+
+    def _find_best_subsequence(self, user_seq: np.ndarray):
+        user_len = len(user_seq)
+        ref_len = len(self.ref_norm)
+        if user_len == 0 or ref_len == 0:
+            return None
+
+        min_len = max(8, user_len - 6)
+        max_len = min(ref_len, user_len + 6)
+        best = None
+        phase = self._estimate_phase(user_seq)
+
+        for cand_len in range(min_len, max_len + 1):
+            for start in range(0, ref_len - cand_len + 1):
+                end = start + cand_len
+                ref_slice = self.ref_norm[start:end]
+                dtw_result = self._dtw(ref_slice, user_seq)
+                if dtw_result is None:
+                    continue
+                metrics = self._compute_path_metrics(ref_slice, user_seq, dtw_result["path"])
+                penalized_cost = dtw_result["norm_cost"] + self._phase_penalty(phase, metrics["local_ref_progress"])
+                global_ref_idx = start + (dtw_result["path"][-1][0] if dtw_result["path"] else 0)
+                candidate = {
+                    "phase": phase,
+                    "start": start,
+                    "end": end,
+                    "total_cost": dtw_result["total_cost"],
+                    "norm_cost": dtw_result["norm_cost"],
+                    "penalized_cost": penalized_cost,
+                    "path": dtw_result["path"],
+                    "ref_progress": float(global_ref_idx / max(ref_len - 1, 1)),
+                    **metrics,
+                }
+                if best is None or candidate["penalized_cost"] < best["penalized_cost"]:
+                    best = candidate
+        return best
 
     def get_live_similarity(
         self,
@@ -1112,50 +2115,80 @@ class KneeRaiseRightDTW:
             return {
                 "live_similarity": None,
                 "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": "unknown",
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
             }
 
         live_seq = user_seq[-live_window:] if len(user_seq) > live_window else user_seq
         user = self._normalize(live_seq)
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {
+                "live_similarity": None,
+                "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": self._estimate_phase(live_seq),
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
+            }
 
-        ref_len = len(self.ref_seq)
-        user_len = len(live_seq)
-        use_len = min(ref_len, user_len)
-
-        ref_partial_raw = self.ref_seq[:use_len]
-        ref_partial = self._normalize(ref_partial_raw)
-        user_partial = user[-use_len:]
-
-        _, cost = self._dtw(ref_partial, user_partial)
-
-        alpha_live = 6.0
-        live_similarity = max(0, min(100, round(100 - alpha_live * cost, 2)))
+        motion_similarity = max(0, min(100, round(100 - 16.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        live_similarity = round((motion_similarity * 0.45) + (posture_similarity * 0.55), 2)
 
         return {
             "live_similarity": live_similarity,
-            "cost": float(cost),
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
+            "ref_window": {
+                "start": best["start"],
+                "end": best["end"],
+            },
         }
 
     def compare(self, user_seq):
         user_seq = np.array(user_seq, dtype=np.float32)
 
-        ref = self._normalize(self.ref_seq)
         user = self._normalize(user_seq)
-
-        _, cost = self._dtw(ref, user)
-
-        alpha = 6.0
-        dtw_score = max(0, min(100, round(100 - alpha * cost, 2)))
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {
+                "score": 0,
+                "dtw_score": 0,
+                "cost": None,
+                "penalty": 0,
+            }
+        motion_similarity = max(0, min(100, round(100 - 16.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        dtw_score = round((motion_similarity * 0.45) + (posture_similarity * 0.55), 2)
 
         return {
             "score": dtw_score,
             "dtw_score": dtw_score,
-            "cost": float(cost),
+            "cost": float(best["norm_cost"]),
             "penalty": 0,
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
         }
         
 # ----------목 좌우돌리기 프로세서---------------------------------------------------------------
 class NeckRotationDTWProcessor(BaseProcessor):
-    def __init__(self, dtw_engine):
+    def __init__(self, dtw_engine, target_reps: int = 3):
         self.dtw_engine = dtw_engine
         self.buffer = []
         self.last_live_similarity = None
@@ -1171,6 +2204,14 @@ class NeckRotationDTWProcessor(BaseProcessor):
         self.center_threshold = 6.0
         self.min_peak_angle = 15.0
         self.max_trunk_rotation = 20.0
+        self.target_reps = int(target_reps)
+        self.feedback_router = RealTimeFeedbackRouter()
+        self.session_summary = SessionFeedbackSummary()
+        self.exercise_type = "neck_rotation"
+        self.csv_logger = DtwFrameCsvLogger(self.exercise_type)
+        self.session_finished = False
+        self._last_obs_ts = time.time()
+        
 
     def _reset_rep_state(self):
         self.rep_phase = "idle"
@@ -1185,15 +2226,30 @@ class NeckRotationDTWProcessor(BaseProcessor):
         return get_neck_rotation_features_mp(pts)
 
     def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
+        if self.session_finished:
+            result = {
+                "mode": "NECK_ROTATION_DTW",
+                "status": "session_finished",
+                "feedback": "세트가 종료되었습니다.",
+                "similarity": self.last_live_similarity,
+                "accuracy_pct": self.last_live_similarity,
+                "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
+            }
+            self.csv_logger.log(result)
+            return result
         if mp_features is None:
-            return {
+            result = {
                 "mode": "NECK_ROTATION_DTW",
                 "status": "waiting",
                 "feedback": "자세를 인식 중입니다.",
                 "similarity": self.last_live_similarity,
                 "accuracy_pct": self.last_live_similarity,
                 "rep_count": self.rep_count,
+                "buffer_len": len(self.buffer),
             }
+            self.csv_logger.log(result)
+            return result
 
         current = tuple(round(v, 3) for v in mp_features)
         prev = tuple(round(v, 3) for v in self.buffer[-1]) if self.buffer else None
@@ -1210,6 +2266,21 @@ class NeckRotationDTWProcessor(BaseProcessor):
         live_similarity = live_result["live_similarity"]
         if live_similarity is not None:
             self.last_live_similarity = live_similarity
+
+        now_ts = time.time()
+        dt_sec = max(0.0, now_ts - self._last_obs_ts)
+        self._last_obs_ts = now_ts
+        compare_payload = {
+            "phase": live_result.get("phase", "unknown"),
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "feature_errors": live_result.get("feature_errors", {}),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "ref_progress": live_result.get("ref_progress"),
+        }
+        feedback_packet = self.feedback_router.process(self.exercise_type, compare_payload, now_ts)
+        self.session_summary.observe(self.exercise_type, feedback_packet["all_issues"], dt_sec)
+        instant_feedback = feedback_packet["feedback"] or "동작 분석 중입니다."
 
         trunk_rotation = float(mp_features[0])
         neck_turn_angle = float(mp_features[1])
@@ -1302,7 +2373,23 @@ class NeckRotationDTWProcessor(BaseProcessor):
                         "avg_similarity": self.rep_avg_similarity,
                         "rep_count": self.rep_count,
                         "cost": live_result["cost"],
+                        "buffer_len": len(self.buffer),
+                        "mp_features": list(mp_features) if mp_features is not None else None,
+                        "live_result": live_result,
+                        "compare_payload": compare_payload,
+                        "feedback_packet": feedback_packet,
+                        "motion_similarity": live_result.get("motion_similarity"),
+                        "posture_similarity": live_result.get("posture_similarity"),
+                        "phase": live_result.get("phase"),
+                        "main_error_feature": live_result.get("main_error_feature"),
+                        "feature_errors": live_result.get("feature_errors", {}),
                     }
+                    if self.rep_count >= self.target_reps:
+                        final_summary = self.session_summary.finalize(top_k=3)
+                        result["session_finished"] = True
+                        result["session_summary"] = final_summary
+                        result["session_summary_lines"] = format_top3_text(final_summary)
+                        self.session_finished = True
                     logger.info(
                         "[NECK AVG] rep finished | rep=%s avg_similarity=%.2f first_peak=%.2f second_peak=%.2f samples=%s",
                         self.rep_count,
@@ -1312,6 +2399,7 @@ class NeckRotationDTWProcessor(BaseProcessor):
                         self.rep_score_count,
                     )
                     self._reset_rep_state()
+                    self.csv_logger.log(result)
                     return result
 
                 logger.warning(
@@ -1323,21 +2411,43 @@ class NeckRotationDTWProcessor(BaseProcessor):
                 )
                 self._reset_rep_state()
 
-        return {
+        result = {
             "mode": "NECK_ROTATION_DTW",
             "status": "running",
-            "feedback": "동작 분석 중입니다.",
+            "feedback": instant_feedback,
             "similarity": self.last_live_similarity,
             "accuracy_pct": self.last_live_similarity,
             "rep_count": self.rep_count,
             "cost": live_result["cost"],
+            "buffer_len": len(self.buffer),
+            "mp_features": list(mp_features) if mp_features is not None else None,
+            "live_result": live_result,
+            "compare_payload": compare_payload,
+            "feedback_packet": feedback_packet,
+            "motion_similarity": live_result.get("motion_similarity"),
+            "posture_similarity": live_result.get("posture_similarity"),
+            "phase": live_result.get("phase"),
+            "main_error_feature": live_result.get("main_error_feature"),
+            "feature_errors": live_result.get("feature_errors", {}),
         }
+        self.csv_logger.log(result)
+        return result
         
 # ----------목 좌우돌리기 DTW---------------------------------------------------------------
 class NeckRotationDTW:
+    FEATURE_NAMES = (
+        "trunk_rotation",
+        "neck_turn_angle",
+        "head_tilt",
+        "shoulder_line_angle",
+    )
+    MOTION_INDEXES = (1,)
+    POSTURE_INDEXES = (0, 2, 3)
+
     def __init__(self, ref_path: str):
         self.ref_seq = self._load_reference(ref_path)
         self.feat_min, self.feat_max = self._get_minmax(self.ref_seq)
+        self.ref_norm = self._normalize(self.ref_seq)
 
     def _load_reference(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
@@ -1351,32 +2461,62 @@ class NeckRotationDTW:
         denom = np.maximum(self.feat_max - self.feat_min, 1e-6)
         return (seq - self.feat_min) / denom
 
-    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
-        """
-        4개 feature
-        [
-            trunk_rotation,
-            neck_turn_angle,
-            head_tilt,
-            shoulder_line_angle,
-        ]
-        """
+    def _frame_error_vector(self, a: np.ndarray, b: np.ndarray):
         weights = np.array([
-            2.6,   # trunk_rotation
-            2.2,   # neck_turn_angle
-            2.8,   # head_tilt
-            1.2,   # shoulder_line_angle
+            2.6,
+            2.2,
+            2.8,
+            1.4,
         ], dtype=np.float32)
+        return np.abs(a - b) * weights
 
-        return np.linalg.norm((a - b) * weights)
+    def _frame_dist(self, a: np.ndarray, b: np.ndarray):
+        return float(np.linalg.norm(self._frame_error_vector(a, b)))
 
-    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray):
+    def _estimate_phase(self, user_seq: np.ndarray):
+        if len(user_seq) == 0:
+            return "unknown"
+        turns = user_seq[:, 1]
+        abs_turns = np.abs(turns)
+        current = float(abs_turns[-1])
+        tmin = float(np.min(abs_turns))
+        tmax = float(np.max(abs_turns))
+        progress = float(np.clip((current - tmin) / max(tmax - tmin, 1e-6), 0.0, 1.0))
+        if len(turns) >= 4:
+            slope = float(np.mean(np.diff(turns[-4:])))
+        elif len(turns) >= 2:
+            slope = float(turns[-1] - turns[0]) / max(len(turns) - 1, 1)
+        else:
+            slope = 0.0
+        if progress >= 0.82:
+            return "peak"
+        if progress <= 0.18 and abs(slope) <= 1.0:
+            return "center"
+        if slope > 1.0:
+            return "turning_right"
+        if slope < -1.0:
+            return "turning_left"
+        return "transition"
+
+    def _phase_penalty(self, phase: str, ref_progress: float):
+        if phase == "peak":
+            return 0.0 if ref_progress >= 0.55 else 0.14
+        if phase in {"turning_right", "turning_left"}:
+            return 0.18 if ref_progress > 0.92 else 0.0
+        if phase == "center":
+            return 0.08 if ref_progress > 0.22 else 0.0
+        return 0.0
+
+    def _dtw(self, seq1: np.ndarray, seq2: np.ndarray, band_ratio: float = 0.3):
         n, m = len(seq1), len(seq2)
         dp = np.full((n + 1, m + 1), np.inf, dtype=np.float32)
         dp[0, 0] = 0.0
+        band = max(3, int(max(n, m) * band_ratio))
 
         for i in range(1, n + 1):
-            for j in range(1, m + 1):
+            j_start = max(1, i - band)
+            j_end = min(m, i + band)
+            for j in range(j_start, j_end + 1):
                 cost = self._frame_dist(seq1[i - 1], seq2[j - 1])
                 dp[i, j] = cost + min(
                     dp[i - 1, j],
@@ -1385,9 +2525,13 @@ class NeckRotationDTW:
                 )
 
         i, j = n, m
+        if not np.isfinite(dp[i, j]):
+            return None
+        path = []
         path_len = 0
         while i > 0 and j > 0:
             path_len += 1
+            path.append((i - 1, j - 1))
             candidates = [
                 (dp[i - 1, j], i - 1, j),
                 (dp[i, j - 1], i, j - 1),
@@ -1395,26 +2539,96 @@ class NeckRotationDTW:
             ]
             _, i, j = min(candidates, key=lambda x: x[0])
 
+        path.reverse()
         path_len = max(path_len, 1)
         total_cost = float(dp[n, m])
         norm_cost = total_cost / path_len
-        return total_cost, norm_cost
+        return {
+            "total_cost": total_cost,
+            "norm_cost": norm_cost,
+            "path": path,
+        }
+
+    def _compute_path_metrics(self, ref_seq: np.ndarray, user_seq: np.ndarray, path):
+        feature_sums = np.zeros(len(self.FEATURE_NAMES), dtype=np.float32)
+        motion_sum = 0.0
+        posture_sum = 0.0
+        for ref_idx, user_idx in path:
+            err_vec = self._frame_error_vector(ref_seq[ref_idx], user_seq[user_idx])
+            feature_sums += err_vec
+            motion_sum += float(np.mean(err_vec[list(self.MOTION_INDEXES)]))
+            posture_sum += float(np.mean(err_vec[list(self.POSTURE_INDEXES)]))
+
+        steps = max(len(path), 1)
+        feature_mean = feature_sums / steps
+        feature_errors = {
+            name: float(feature_mean[idx])
+            for idx, name in enumerate(self.FEATURE_NAMES)
+        }
+        main_idx = max(self.POSTURE_INDEXES, key=lambda idx: feature_errors[self.FEATURE_NAMES[idx]])
+        local_ref_idx = path[-1][0] if path else 0
+        local_ref_progress = float(local_ref_idx / max(len(ref_seq) - 1, 1))
+        return {
+            "feature_errors": feature_errors,
+            "motion_cost": float(motion_sum / steps),
+            "posture_cost": float(posture_sum / steps),
+            "main_error_feature": self.FEATURE_NAMES[main_idx],
+            "local_ref_progress": local_ref_progress,
+        }
+
+    def _find_best_subsequence(self, user_seq: np.ndarray):
+        user_len = len(user_seq)
+        ref_len = len(self.ref_norm)
+        if user_len == 0 or ref_len == 0:
+            return None
+        min_len = max(10, user_len - 8)
+        max_len = min(ref_len, user_len + 8)
+        phase = self._estimate_phase(user_seq)
+        best = None
+        for cand_len in range(min_len, max_len + 1):
+            for start in range(0, ref_len - cand_len + 1):
+                end = start + cand_len
+                ref_slice = self.ref_norm[start:end]
+                dtw_result = self._dtw(ref_slice, user_seq)
+                if dtw_result is None:
+                    continue
+                metrics = self._compute_path_metrics(ref_slice, user_seq, dtw_result["path"])
+                penalized_cost = dtw_result["norm_cost"] + self._phase_penalty(phase, metrics["local_ref_progress"])
+                global_ref_idx = start + (dtw_result["path"][-1][0] if dtw_result["path"] else 0)
+                candidate = {
+                    "phase": phase,
+                    "start": start,
+                    "end": end,
+                    "norm_cost": dtw_result["norm_cost"],
+                    "total_cost": dtw_result["total_cost"],
+                    "penalized_cost": penalized_cost,
+                    "ref_progress": float(global_ref_idx / max(ref_len - 1, 1)),
+                    **metrics,
+                }
+                if best is None or candidate["penalized_cost"] < best["penalized_cost"]:
+                    best = candidate
+        return best
 
     def compare(self, user_seq):
         user_seq = np.array(user_seq, dtype=np.float32)
-
-        ref = self._normalize(self.ref_seq)
         user = self._normalize(user_seq)
-
-        _, norm_cost = self._dtw(ref, user)
-
-        alpha = 8.0
-        dtw_score = max(0, min(100, round(100 - alpha * norm_cost, 2)))
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {"score": 0, "dtw_score": 0, "cost": None}
+        motion_similarity = max(0, min(100, round(100 - 18.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        dtw_score = round((motion_similarity * 0.55) + (posture_similarity * 0.45), 2)
 
         return {
             "score": dtw_score,
             "dtw_score": dtw_score,
-            "cost": float(norm_cost),
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
         }
 
     def get_live_similarity(
@@ -1429,25 +2643,40 @@ class NeckRotationDTW:
             return {
                 "live_similarity": None,
                 "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": "unknown",
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
             }
 
         live_seq = user_seq[-live_window:] if len(user_seq) > live_window else user_seq
         user = self._normalize(live_seq)
+        best = self._find_best_subsequence(user)
+        if best is None:
+            return {
+                "live_similarity": None,
+                "cost": None,
+                "motion_similarity": None,
+                "posture_similarity": None,
+                "phase": self._estimate_phase(live_seq),
+                "feature_errors": {},
+                "main_error_feature": None,
+                "ref_progress": None,
+            }
 
-        ref_len = len(self.ref_seq)
-        user_len = len(live_seq)
-        use_len = min(ref_len, user_len)
-
-        ref_partial_raw = self.ref_seq[:use_len]
-        ref_partial = self._normalize(ref_partial_raw)
-        user_partial = user[-use_len:]
-
-        _, norm_cost = self._dtw(ref_partial, user_partial)
-
-        alpha_live = 8.0
-        live_similarity = max(0, min(100, round(100 - alpha_live * norm_cost, 2)))
+        motion_similarity = max(0, min(100, round(100 - 18.0 * best["motion_cost"], 2)))
+        posture_similarity = max(0, min(100, round(100 - 18.0 * best["posture_cost"], 2)))
+        live_similarity = round((motion_similarity * 0.55) + (posture_similarity * 0.45), 2)
 
         return {
             "live_similarity": live_similarity,
-            "cost": float(norm_cost),
+            "cost": float(best["norm_cost"]),
+            "motion_similarity": motion_similarity,
+            "posture_similarity": posture_similarity,
+            "phase": best["phase"],
+            "feature_errors": best["feature_errors"],
+            "main_error_feature": best["main_error_feature"],
+            "ref_progress": best["ref_progress"],
         }

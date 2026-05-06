@@ -1,7 +1,7 @@
 // src/pages/Check/CheckPage.jsx
 // 현재 가동범위/상태 측정
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SideBySideStage from "../../../components/layout/SideBySideStage";
 import WsCamera from "../../../components/camera/WsCamera";
 import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
@@ -19,9 +19,21 @@ export default function CheckPage() {
     sp.get("part") ?? location.state?.selectedPart;  // "knee" | "hip" | "shoulder" | null
   const [progress, setProgress] = useState("");
   const [stage, setStage] = useState("");
+  const [status, setStatus] = useState("");
   const [finished, setFinished] = useState(false);
   const [finalAccuracy, setFinalAccuracy] = useState(100);
   const [completedAt, setCompletedAt] = useState(null);
+  const statusAudioRef = useRef(null);
+  const lastStatusRef = useRef("");
+  const audioReadyRef = useRef(false);
+
+  const STATUS_AUDIO_MAP = {
+    ready: "/audio/check_neck_ready.mp3",
+    left_hold: "/audio/check_neck_left_hold.mp3",
+    center_return: "/audio/check_neck_center_return.mp3",
+    right_hold: "/audio/check_neck_right_hold.mp3",
+    finished: "/audio/check_neck_done.mp3",
+  };
 
   const WS_BASE = getWsBase();
   
@@ -29,7 +41,33 @@ export default function CheckPage() {
     ? `${WS_BASE}/api/v1/ws/measure?parts=${encodeURIComponent(selectedPart)}`
     : `${WS_BASE}/api/v1/ws/measure`;
 
-  console.log("🧪 CheckPage", { selectedPart, wsUrl });
+  useEffect(() => {
+    audioReadyRef.current = true;
+    return () => {
+      audioReadyRef.current = false;
+      if (statusAudioRef.current) {
+        statusAudioRef.current.pause();
+        statusAudioRef.current.currentTime = 0;
+        statusAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  function playStatusAudio(nextStatus) {
+    const src = STATUS_AUDIO_MAP[nextStatus];
+    if (!src || !audioReadyRef.current) return;
+    if (lastStatusRef.current === nextStatus) return;
+    lastStatusRef.current = nextStatus;
+    try {
+      if (statusAudioRef.current) {
+        statusAudioRef.current.pause();
+        statusAudioRef.current.currentTime = 0;
+      }
+      const audio = new Audio(src);
+      statusAudioRef.current = audio;
+      audio.play().catch(() => {});
+    } catch {}
+  }
 
   async function persistAccuracy() {
     // [조현석] 측정 화면도 운동 화면과 동일하게 서버 장애 시를 대비한 로컬 백업 기록을 유지합니다.
@@ -66,8 +104,10 @@ export default function CheckPage() {
           setFinished(false);
           setProgress("");
           setStage("");
+          setStatus("");
           setFinalAccuracy(100);
           setCompletedAt(null);
+          lastStatusRef.current = "";
         }}
         />
     );
@@ -77,11 +117,7 @@ export default function CheckPage() {
   return (
     <SideBySideStage
       single
-      topSlot={
-        !selectedPart && progress ? (
-          <div className="progress-pill">{progress}</div>
-        ) : null
-      }
+      topSlot={null}
       bottomRightSlot={
         <button
           className="exit-btn"
@@ -96,23 +132,36 @@ export default function CheckPage() {
       rightTitle="내 화면"
       rightSub="실시간 카메라"
       rightContent={
-        <WsCamera
-          wsUrl={wsUrl}
-          enabled={!finished}
-          onState={(data) => {
-            if (data.progress) setProgress(data.progress);
-            if (data.stage) setStage(data.stage);
-            // [조현석] 측정 도중 들어오는 accuracy_pct 중 가장 마지막 값을 최종 정확도로 사용합니다.
-            if (typeof data.accuracy_pct === "number") setFinalAccuracy(data.accuracy_pct);
-            console.log("MEASURE:", data.status, data.stage, data.progress);
-          }}
-          onResult={(data) => {
-            if (data.status === "finished") {
-              setCompletedAt(new Date().toISOString());
-              setFinished(true);
-            }
-          }}
-        />
+        <div className="relative w-full h-full">
+          {status ? (
+            <div className="absolute left-3 top-3 z-20 rounded-2xl bg-black/70 border border-white/10 px-4 py-2 text-white text-lg font-black tracking-wide">
+              {status}
+            </div>
+          ) : null}
+          <WsCamera
+            wsUrl={wsUrl}
+            enabled={!finished}
+            onState={(data) => {
+              if (data.progress) setProgress(data.progress);
+              if (data.stage) setStage(data.stage);
+              if (data.status) {
+                setStatus(data.status);
+                playStatusAudio(data.status);
+              } else {
+                setStatus("waiting");
+              }
+              // [조현석] 측정 도중 들어오는 accuracy_pct 중 가장 마지막 값을 최종 정확도로 사용합니다.
+              if (typeof data.accuracy_pct === "number") setFinalAccuracy(data.accuracy_pct);
+            }}
+            onResult={(data) => {
+              if (data.status === "finished") {
+                playStatusAudio("finished");
+                setCompletedAt(new Date().toISOString());
+                setFinished(true);
+              }
+            }}
+          />
+        </div>
       }
     />
   );

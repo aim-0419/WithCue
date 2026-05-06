@@ -85,7 +85,9 @@ function buildCalendarDays(currentMonth, recordsByDate) {
 
 export default function RecordPage() {
   const [records, setRecords] = useState([]);
-  const [selectedDateKey, setSelectedDateKey] = useState(null);
+  const [selectedDateKey, setSelectedDateKey] = useState(() =>
+    toLocalDateKey(new Date())
+  );
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()));
 
   useEffect(() => {
@@ -93,10 +95,6 @@ export default function RecordPage() {
 
     const fallbackRecords = readAccuracyHistoryEntries("exercise");
     setRecords(fallbackRecords);
-    if (fallbackRecords.length > 0) {
-      setSelectedDateKey(fallbackRecords[0].dateKey);
-      setCurrentMonth(startOfMonth(new Date(fallbackRecords[0].recordedAt)));
-    }
 
     async function loadHistory() {
       try {
@@ -110,10 +108,6 @@ export default function RecordPage() {
           sourceKey: item.source_key ?? null,
         }));
         setRecords(mapped);
-        if (mapped.length > 0) {
-          setSelectedDateKey(mapped[0].dateKey);
-          setCurrentMonth(startOfMonth(new Date(mapped[0].recordedAt)));
-        }
       } catch (error) {
         console.error("[Record] failed to fetch", error);
       }

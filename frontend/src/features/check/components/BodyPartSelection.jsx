@@ -22,22 +22,24 @@ export function BodyPartSelection({ onSelect, onClose, onSelectAll }) {
 
   const sideSelectionConfig = {
     shoulder: {
-      title: "어느 쪽 어깨를 검사할까요?",
+      title: "어느 부위를 검사할까요?",
       left: {
         id: "shoulder_left",
         alt: "Left Shoulder",
         label: "왼쪽 어깨",
         desc: "왼쪽 어깨와 상체 가동범위 집중 검사",
-        image:
-          "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?q=80&w=2000&auto=format&fit=crop",
       },
       right: {
         id: "shoulder_right",
         alt: "Right Shoulder",
         label: "오른쪽 어깨",
         desc: "오른쪽 어깨와 상체 가동범위 집중 검사",
-        image:
-          "https://images.unsplash.com/photo-1574680096145-d05b474e2155?q=80&w=2000&auto=format&fit=crop",
+      },
+      neck: {
+        id: "neck",
+        alt: "Neck",
+        label: "목",
+        desc: "목 좌우 회전 가동범위 집중 검사",
       },
     },
     knee: {
@@ -72,7 +74,7 @@ export function BodyPartSelection({ onSelect, onClose, onSelectAll }) {
     },
     {
       id: "shoulder",
-      name: "어깨 / 상체",
+      name: "어깨 / 목",
       desc: "거북목 교정과 어깨 안정성을 위한 스트레칭 및 가동범위 측정",
       icon: User,
       color: "from-blue-500 to-cyan-500",
@@ -191,54 +193,69 @@ export function BodyPartSelection({ onSelect, onClose, onSelectAll }) {
       {/* ===================== */}
       {activeSideSelection && (
         <div className="flex-1 flex flex-col z-10">
-          <div className="flex gap-6 h-full max-h-[420px]">
-            {/* LEFT */}
-            <button
-              onClick={() => onSelect(activeSideSelection.left.id)}
-              className="flex-1 group relative rounded-3xl overflow-hidden border border-slate-800 hover:border-blue-500 transition-all bg-slate-900/50"
-            >
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/90 z-10" />
-              <img
-                src={activeSideSelection.left.image}
-                alt={activeSideSelection.left.alt}
-                className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 group-hover:scale-105 transition-all duration-500"
-              />
-              <div className="absolute bottom-0 left-0 p-8 z-20 text-left">
-                <span className="text-blue-400 font-bold text-sm block mb-2 uppercase">
-                  Left Side
-                </span>
-                <h3 className="text-4xl font-bold mb-2">
-                  {activeSideSelection.left.label}
-                </h3>
-                <p className="text-slate-300 text-sm">
-                  {activeSideSelection.left.desc}
-                </p>
-              </div>
-            </button>
-
-            {/* RIGHT */}
-            <button
-              onClick={() => onSelect(activeSideSelection.right.id)}
-              className="flex-1 group relative rounded-3xl overflow-hidden border border-slate-800 hover:border-blue-500 transition-all bg-slate-900/50"
-            >
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/90 z-10" />
-              <img
-                src={activeSideSelection.right.image}
-                alt={activeSideSelection.right.alt}
-                className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-80 group-hover:scale-105 transition-all duration-500"
-              />
-              <div className="absolute bottom-0 left-0 p-8 z-20 text-left">
-                <span className="text-blue-400 font-bold text-sm block mb-2 uppercase">
-                  Right Side
-                </span>
-                <h3 className="text-4xl font-bold mb-2">
-                  {activeSideSelection.right.label}
-                </h3>
-                <p className="text-slate-300 text-sm">
-                  {activeSideSelection.right.desc}
-                </p>
-              </div>
-            </button>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                key: "left",
+                data: activeSideSelection.left,
+                badge: "LEFT",
+                color:
+                  subSelection === "knee"
+                    ? "from-emerald-500 to-teal-500"
+                    : "from-blue-500 to-cyan-500",
+                icon: subSelection === "knee" ? Dumbbell : User,
+              },
+              {
+                key: "right",
+                data: activeSideSelection.right,
+                badge: "RIGHT",
+                color:
+                  subSelection === "knee"
+                    ? "from-emerald-500 to-teal-500"
+                    : "from-blue-500 to-cyan-500",
+                icon: subSelection === "knee" ? Dumbbell : User,
+              },
+              activeSideSelection.neck
+                ? {
+                    key: "neck",
+                    data: activeSideSelection.neck,
+                    badge: "NECK",
+                    color: "from-blue-500 to-cyan-500",
+                    icon: User,
+                  }
+                : null,
+            ]
+              .filter(Boolean)
+              .map(({ key, data, badge, color, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => onSelect(data.id)}
+                  className="group relative flex flex-col text-left p-8 rounded-3xl bg-slate-900/60 border border-slate-800 hover:border-blue-500/50 hover:bg-slate-800/80 transition-all overflow-hidden"
+                >
+                  <div
+                    className={`absolute inset-0 bg-gradient-to-br ${color} opacity-0 group-hover:opacity-10 transition-opacity duration-500`}
+                  />
+                  <div
+                    className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${color} flex items-center justify-center mb-6 shadow-lg`}
+                  >
+                    <Icon size={28} className="text-white" />
+                  </div>
+                  <span className="text-blue-400 font-bold text-sm block mb-3 uppercase">
+                    {badge}
+                  </span>
+                  <h3 className="text-2xl font-bold mb-3">{data.label}</h3>
+                  <p className="text-slate-300 text-sm leading-relaxed">
+                    {data.desc}
+                  </p>
+                  <div className="mt-auto flex items-center gap-2 text-slate-500 text-sm font-bold group-hover:text-white transition-colors">
+                    검사 시작하기
+                    <ArrowRight
+                      size={16}
+                      className="group-hover:translate-x-1 transition-transform"
+                    />
+                  </div>
+                </button>
+              ))}
           </div>
 
           <div className="mt-8">

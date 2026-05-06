@@ -65,8 +65,10 @@ async def measure_endpoint(
     # [실제 운영 모드] 실시간 측정 WS 진입점: 라우터는 입력 파싱만 하고 로직은 서비스/프로세서로 위임
     # [중요] mock 모드에서는 필요 없는 무거운 모듈을 지연 import로 분리
     from app.services.motion_service import MotionService
-    from app.services.processors import MeasurementProcessor
-
+    from app.services.processors import (
+        MeasurementProcessor,
+        NeckROMMeasurementProcessor,
+    )
     # 1. 연결 서비스 생성
     service = MotionService(websocket, yolo_model)
     
@@ -75,7 +77,11 @@ async def measure_endpoint(
     target_list = parse_measure_schedule(parts)
         
     # 3. 프로세서에 '할 일 목록' 전달
-    processor = MeasurementProcessor(target_schedule=target_list)
+    if target_list == ["neck"] or parts == "neck":
+        processor = NeckROMMeasurementProcessor()
+    else:
+        processor = MeasurementProcessor(target_schedule=target_list)
+
     service.set_processor(processor)
     await service.start()
 

@@ -5,13 +5,45 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import SideBySideStage from "../../../components/layout/SideBySideStage";
 import WsCamera from "../../../components/camera/WsCamera";
 import { useNavigate, useParams } from "react-router-dom";
-import { getWsBase } from "../../../services/runtimeConfig";
+import { getApiBase, getWsBase } from "../../../services/runtimeConfig";
 import { saveAccuracyHistory } from "../../../utils/accuracyHistory";
 import { saveAccuracyToServer } from "../../../services/accuracyApi";
 import {
   ExerciseResultView,
   formatExerciseDuration,
 } from "../results/ExerciseResultPage";
+
+const DEFAULT_ANALYZING_FEEDBACK = "동작 분석 중입니다.";
+const DEFAULT_WAITING_FEEDBACK = "자세를 인식 중입니다.";
+const FEEDBACK_COOLDOWN_MS = 2500;
+const FEEDBACK_FALLBACK_DISPLAY_MS = 1800;
+
+const FEEDBACK_AUDIO_MAP = {
+  "팔과 다리의 가동범위를 기준보다 조금 더 확보해 주세요.":
+    "팔과_다리의_가동범위를_기준보다_조금_더_확보해_주세요.mp3",
+  "좌우 균형이 흔들립니다. 몸통 중심을 고정해 주세요.":
+    "좌우_균형이_흔들립니다_몸통_중심을_고정해_주세요.mp3",
+  "관절 정렬이 무너집니다. 허리/어깨 라인을 유지해 주세요.":
+    "관절_정렬이_무너집니다_허리어깨_라인을_유지해_주세요.mp3",
+  "팔을 들 때 어깨가 같이 올라갑니다. 승모근 힘을 줄이고 들어 주세요.":
+    "팔을_들_때_어깨가_같이_올라갑니다_승모근_힘을_줄이고_들어_주세요.mp3",
+  "몸통이 함께 움직입니다. 상체를 세운 상태를 유지해 주세요.":
+    "몸통이_함께_움직입니다_상체를_세운_상태를_유지해_주세요.mp3",
+  "팔꿈치가 과하게 굽혀집니다. 팔을 조금 더 편 상태로 올려 주세요.":
+    "팔꿈치가_과하게_굽혀집니다_팔을_조금_더_편_상태로_올려_주세요.mp3",
+  "다리를 들 때 몸통이 같이 흔들립니다. 상체를 고정해 주세요.":
+    "다리를_들_때_몸통이_같이_흔들립니다_상체를_고정해주세요.mp3",
+  "골반 흔들림이 큽니다. 골반을 수평으로 유지해 주세요.":
+    "골반_흔들림이_큽니다_골반을_수평으로_유지해_주세요.mp3",
+  "무릎이 굽혀집니다. 다리를 더 곧게 유지해 주세요.":
+    "무릎이_굽혀집니다_다리를_더_곧게_유지해_주세요.mp3",
+  "좌우 회전 범위 차이가 큽니다. 양쪽을 같은 크기로 회전해 주세요.":
+    "좌우_회전_범위_차이가_큽니다_양쪽을_같은_크기로_회전해_주세요.mp3",
+  "회전 범위가 작습니다. 통증 없는 범위에서 조금 더 돌려 주세요.":
+    "회전_범위가_작습니다_통증_없는_범위에서_조금_더_돌려_주세요.mp3",
+  "목 회전 시 어깨나 몸통이 같이 따라갑니다. 목만 분리해서 움직여 주세요.":
+    "목_회전_시_어깨나_몸통이_같이_따라갑니다_목만_분리해서_움직여_주세요.mp3",
+};
 
 const EXERCISE_RESULT_META = {
   bird_dog: {
@@ -78,6 +110,7 @@ const EXERCISE_RESULT_META = {
 
 export default function ExercisePage() {
   const navigate = useNavigate();
+  const API_BASE = getApiBase();
   // [조현석] 운동 코칭 페이지도 Check 페이지와 동일하게 현재 접속 호스트 기준 WS 주소를 사용합니다.
   const WS_BASE = getWsBase();
   const { exerciseId } = useParams();
@@ -98,11 +131,14 @@ export default function ExercisePage() {
     return `${WS_BASE}/api/v1/ws/coach/${exerciseId}?limit=80`;
   }, [WS_BASE, exerciseId]);
 
+  const feedbackAudioBase = useMemo(() => `${API_BASE}/assets/tts`, [API_BASE]);
+
   const [liveDtwScore, setLiveDtwScore] = useState(null);
   const [finalAccuracy, setFinalAccuracy] = useState(null);
   const [finished, setFinished] = useState(false);
   const [sessionKey, setSessionKey] = useState(0);
   const [repCount, setRepCount] = useState(0);
+  const [liveFeedback, setLiveFeedback] = useState(DEFAULT_ANALYZING_FEEDBACK);
   const [sessionDurationSec, setSessionDurationSec] = useState(0);
   const [completedAt, setCompletedAt] = useState(null);
   const [wsEnabled, setWsEnabled] = useState(true);
@@ -110,6 +146,12 @@ export default function ExercisePage() {
   const hasSavedRef = useRef(false);
   const autoFinishAudioRef = useRef(null);
   const autoFinishArmedRef = useRef(false);
+  const activeFeedbackAudioRef = useRef(null);
+  const defaultFeedbackRef = useRef(DEFAULT_ANALYZING_FEEDBACK);
+  const activeFeedbackMessageRef = useRef("");
+  const feedbackCooldownTimerRef = useRef(null);
+  const feedbackFallbackTimerRef = useRef(null);
+  const feedbackGateStateRef = useRef("open");
 
   const isDtwExercise = DTW_EXERCISES.has(exerciseId);
   const isBirdDogExercise = exerciseId === "bird_dog";
@@ -151,11 +193,14 @@ export default function ExercisePage() {
       autoFinishAudioRef.current.pause();
       autoFinishAudioRef.current.currentTime = 0;
     }
+    clearFeedbackPlayback({ nextFeedback: DEFAULT_ANALYZING_FEEDBACK });
     autoFinishArmedRef.current = false;
     setFinished(false);
     setLiveDtwScore(null);
     setFinalAccuracy(null);
     setRepCount(0);
+    setLiveFeedback(DEFAULT_ANALYZING_FEEDBACK);
+    defaultFeedbackRef.current = DEFAULT_ANALYZING_FEEDBACK;
     setSessionDurationSec(0);
     setCompletedAt(null);
     setWsEnabled(true);
@@ -199,6 +244,143 @@ export default function ExercisePage() {
     autoFinishAudioRef.current.play().catch(() => {});
   }
 
+  function clearFeedbackAudio() {
+    if (activeFeedbackAudioRef.current) {
+      activeFeedbackAudioRef.current.pause();
+      activeFeedbackAudioRef.current.currentTime = 0;
+      activeFeedbackAudioRef.current = null;
+    }
+  }
+
+  function clearFeedbackTimers() {
+    if (feedbackCooldownTimerRef.current) {
+      clearTimeout(feedbackCooldownTimerRef.current);
+      feedbackCooldownTimerRef.current = null;
+    }
+    if (feedbackFallbackTimerRef.current) {
+      clearTimeout(feedbackFallbackTimerRef.current);
+      feedbackFallbackTimerRef.current = null;
+    }
+  }
+
+  function clearFeedbackPlayback({
+    nextFeedback = defaultFeedbackRef.current,
+  } = {}) {
+    clearFeedbackTimers();
+    clearFeedbackAudio();
+    feedbackGateStateRef.current = "open";
+    activeFeedbackMessageRef.current = "";
+    setLiveFeedback(nextFeedback);
+  }
+
+  function startFeedbackPlayback(message) {
+    if (!message) {
+      return;
+    }
+
+    const filename = FEEDBACK_AUDIO_MAP[message];
+    activeFeedbackMessageRef.current = message;
+    feedbackGateStateRef.current = "playing";
+    setLiveFeedback(message);
+
+    const enterCooldown = () => {
+      clearFeedbackAudio();
+      feedbackGateStateRef.current = "cooldown";
+      feedbackCooldownTimerRef.current = setTimeout(() => {
+        feedbackCooldownTimerRef.current = null;
+        feedbackGateStateRef.current = "open";
+        activeFeedbackMessageRef.current = "";
+        setLiveFeedback(defaultFeedbackRef.current);
+      }, FEEDBACK_COOLDOWN_MS);
+    };
+
+    if (!filename) {
+      feedbackFallbackTimerRef.current = setTimeout(() => {
+        feedbackFallbackTimerRef.current = null;
+        enterCooldown();
+      }, FEEDBACK_FALLBACK_DISPLAY_MS);
+      return;
+    }
+
+    const audio = new Audio(`${feedbackAudioBase}/${filename}`);
+    activeFeedbackAudioRef.current = audio;
+    audio.onended = () => {
+      enterCooldown();
+    };
+    audio.onerror = () => {
+      enterCooldown();
+    };
+    audio.play().catch(() => {
+      enterCooldown();
+    });
+  }
+
+  function finishSession() {
+    if (finished) {
+      return;
+    }
+
+    const computedFinalAccuracy = finalizeExerciseAccuracy();
+    setWsEnabled(false);
+    setSessionDurationSec(
+      Math.round((Date.now() - sessionStartedAtRef.current) / 1000)
+    );
+    setFinalAccuracy(computedFinalAccuracy);
+    setCompletedAt(new Date().toISOString());
+    setFinished(true);
+  }
+
+  function updateLiveFeedback(nextFeedback, { force = false } = {}) {
+    if (typeof nextFeedback !== "string") {
+      return;
+    }
+
+    const trimmed = nextFeedback.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const isDefaultFeedback =
+      trimmed === DEFAULT_ANALYZING_FEEDBACK || trimmed === DEFAULT_WAITING_FEEDBACK;
+
+    if (isDefaultFeedback) {
+      defaultFeedbackRef.current = trimmed;
+      if (
+        !force &&
+        feedbackGateStateRef.current !== "open"
+      ) {
+        return;
+      }
+      if (force) {
+        clearFeedbackPlayback({ nextFeedback: trimmed });
+      }
+      setLiveFeedback(trimmed);
+      return;
+    }
+
+    if (force) {
+      clearFeedbackPlayback({ nextFeedback: defaultFeedbackRef.current });
+    }
+
+    // 재생 시작부터 cooldown 종료까지는 게이트를 닫고,
+    // 그 사이 들어온 피드백은 큐에 쌓지 않고 그대로 버립니다.
+    if (feedbackGateStateRef.current !== "open") {
+      return;
+    }
+
+    if (activeFeedbackMessageRef.current === trimmed) {
+      return;
+    }
+
+    startFeedbackPlayback(trimmed);
+  }
+
+  useEffect(() => {
+    return () => {
+      clearFeedbackPlayback({ nextFeedback: defaultFeedbackRef.current });
+    };
+  }, []);
+
   useEffect(() => {
     if (finished) {
       return;
@@ -215,13 +397,7 @@ export default function ExercisePage() {
       repCount >= exerciseMeta.repTarget
     ) {
       playAutoFinishAudio();
-      const computedFinalAccuracy = finalizeExerciseAccuracy();
-      setSessionDurationSec(
-        Math.round((Date.now() - sessionStartedAtRef.current) / 1000)
-      );
-      setFinalAccuracy(computedFinalAccuracy);
-      setCompletedAt(new Date().toISOString());
-      setFinished(true);
+      finishSession();
     }
   }, [exerciseMeta.repTarget, finished, repCount]);
 
@@ -283,14 +459,7 @@ export default function ExercisePage() {
         <button
           className="exit-btn"
           onClick={() => {
-            const computedFinalAccuracy = finalizeExerciseAccuracy();
-            setWsEnabled(false);
-            setSessionDurationSec(
-              Math.round((Date.now() - sessionStartedAtRef.current) / 1000)
-            );
-            setFinalAccuracy(computedFinalAccuracy);
-            setCompletedAt(new Date().toISOString());
-            setFinished(true);
+            finishSession();
           }}
         >
           종료
@@ -320,6 +489,26 @@ export default function ExercisePage() {
           <div>횟수: {repCount ?? 0}</div>
         </div>
 
+        <div
+          style={{
+            position: "absolute",
+            left: 20,
+            right: 20,
+            bottom: 20,
+            zIndex: 20,
+            background: "rgba(0,0,0,0.72)",
+            color: "#fff",
+            padding: "14px 18px",
+            borderRadius: 14,
+            fontSize: 18,
+            fontWeight: 600,
+            lineHeight: 1.45,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+          }}
+        >
+          {liveFeedback || DEFAULT_ANALYZING_FEEDBACK}
+        </div>
+
         <WsCamera
           key={sessionKey}
           wsUrl={wsUrl}
@@ -332,7 +521,15 @@ export default function ExercisePage() {
               setLiveDtwScore(null);
               setFinalAccuracy(null);
               setRepCount(0);
+              updateLiveFeedback(DEFAULT_WAITING_FEEDBACK, { force: true });
               autoFinishArmedRef.current = false;
+            }
+            if (data.status === "session_finished" || data.session_finished) {
+              finishSession();
+              return;
+            }
+            if (typeof data.feedback === "string" && data.feedback.trim()) {
+              updateLiveFeedback(data.feedback);
             }
             if (typeof data.similarity === "number") {
               setLiveDtwScore(data.similarity);
@@ -355,6 +552,13 @@ export default function ExercisePage() {
           onResult={(data) => {
             if (typeof data.rep_count === "number") {
               setRepCount(data.rep_count);
+            }
+            if (data.status === "session_finished" || data.session_finished) {
+              finishSession();
+              return;
+            }
+            if (typeof data.feedback === "string" && data.feedback.trim()) {
+              updateLiveFeedback(data.feedback, { force: true });
             }
           }}
         />

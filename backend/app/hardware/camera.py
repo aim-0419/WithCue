@@ -1,7 +1,9 @@
 import pyrealsense2 as rs
 import numpy as np
-import time
 from typing import Dict
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CameraManager:
     def __init__(self):
@@ -13,42 +15,56 @@ class CameraManager:
     def start(self):
         """
         카메라 스트리밍 시작
-        (이미 켜져 있으면 무시하고 넘어갑니다 - 재사용성 강화)
+        (이미 켜져 있으면 기존 파이프라인을 재사용합니다.)
         """
-        # 1. 이미 켜져 있는지 확인 (Double Start 방지)
         if self.active and self.pipeline is not None:
-            print("[Camera] Already active. Reusing existing pipeline.")
-            return
+            logger.info("[Camera] 이미 활성 상태입니다. 기존 파이프라인을 재사용합니다.")
+            return True
+
+        self.pipeline = None
+        self.config = None
+        self.intrinsics = None
 
         try:
-            print("[Camera] Initializing RealSense...")
+            ctx = rs.context()
+            devices = ctx.query_devices()
+            if len(devices) == 0:
+                raise RuntimeError("RealSense 장치를 찾지 못했습니다.")
+
+            logger.info("[Camera] RealSense를 초기화하는 중입니다...")
             self.pipeline = rs.pipeline()
             self.config = rs.config()
-            
-            # 해상도 및 FPS 설정 (Jetson 부하 고려 640x480 @ 30fps)
+
             self.config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
             self.config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
 
-            # 파이프라인 시작
             profile = self.pipeline.start(self.config)
-            
-            # 내부 파라미터(Intrinsics) 저장 (3D 좌표 변환용)
             stream = profile.get_stream(rs.stream.depth)
             if stream:
                 self.intrinsics = stream.as_video_stream_profile().get_intrinsics()
-            
+            if self.intrinsics is None:
+                raise RuntimeError("RealSense depth intrinsics를 읽지 못했습니다.")
+
             self.active = True
-            print("[Camera] RealSense Started Successfully.")
-            
-        except RuntimeError as e:
-            # 혹시 '이미 켜져 있음' 에러라면 쿨하게 넘어감
-            if "Device or resource busy" in str(e):
-                print("[Camera] Device busy but assume active.")
-                self.active = True
-            else:
-                print(f"[Camera] Start Failed: {e}")
-                self.active = False
-                self.pipeline = None
+            logger.info("[Camera] RealSense가 정상적으로 시작되었습니다.")
+            return True
+
+        except Exception as e:
+            message = str(e)
+            logger.exception("[Camera] 시작에 실패했습니다: %s", message)
+            self.active = False
+            self.intrinsics = None
+            if self.pipeline is not None:
+                try:
+                    self.pipeline.stop()
+                except Exception:
+                    pass
+            self.pipeline = None
+            self.config = None
+
+            if "Device or resource busy" in message:
+                raise RuntimeError("RealSense 장치가 다른 프로세스에서 사용 중입니다.") from e
+            raise RuntimeError(f"RealSense 초기화 실패: {message}") from e
 
     def stop(self):
         """
@@ -59,17 +75,18 @@ class CameraManager:
         if not self.active:
             return
 
-        print("[Camera] Stopping RealSense...")
+        logger.info("[Camera] RealSense를 종료하는 중입니다...")
         try:
             if self.pipeline:
                 self.pipeline.stop()
         except Exception as e:
-            print(f"[Camera] Error during stop (Ignored): {e}")
+            logger.warning("[Camera] 종료 중 오류가 발생했지만 계속 진행합니다: %s", e)
         finally:
-            # [핵심] 무슨 일이 있어도 상태는 '꺼짐'으로 변경
             self.pipeline = None
+            self.config = None
+            self.intrinsics = None
             self.active = False
-            print("[Camera] RealSense Stopped.")
+            logger.info("[Camera] RealSense가 종료되었습니다.")
 
     def get_frame(self):
         """

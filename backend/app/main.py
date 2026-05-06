@@ -18,10 +18,38 @@ from app.core.database import init_db
 from app.core.config import settings
 from app.core.gpu_debug import log_gpu_snapshot
 
+
+class ColorLogFormatter(logging.Formatter):
+    RESET = "\033[0m"
+    COLORS = {
+        logging.DEBUG: "\033[36m",
+        logging.INFO: "\033[32m",
+        logging.WARNING: "\033[33m",
+        logging.ERROR: "\033[31m",
+        logging.CRITICAL: "\033[35m",
+    }
+    LABELS = {
+        logging.DEBUG: "DEBUG",
+        logging.INFO: "INFO ",
+        logging.WARNING: "WARN ",
+        logging.ERROR: "ERROR",
+        logging.CRITICAL: "FATAL",
+    }
+
+    def format(self, record):
+        color = self.COLORS.get(record.levelno, "")
+        level = self.LABELS.get(record.levelno, record.levelname)
+        record.levelname = f"{color}{level}{self.RESET}"
+        return super().format(record)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+for handler in logging.getLogger().handlers:
+    handler.setFormatter(
+        ColorLogFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
 # [핵심] 모듈별 logger를 사용해 운영 시 로그 레벨/출력을 제어하기 쉽게 구성
 logger = logging.getLogger(__name__)
 
@@ -34,24 +62,24 @@ if torch.cuda.is_available():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ====== [Startup: 시스템 시작] ======
-    logger.info("Startup sequence initiated.")
+    logger.info("서버 시작 절차를 진행합니다.")
     # [조현석] YOLO 로드 실패 시에도 state 속성 자체는 항상 존재하게 만들어 WS 진입 시 AttributeError가 나지 않도록 합니다.
     app.state.yolo_model = None
     # [조현석] 일별 정확도 저장 테이블이 운영 DB에 없어서 기록이 누락되는 문제를 막기 위해 시작 시 스키마를 보장합니다.
     init_db()
-    logger.info("Database schema ensured.")
+    logger.info("데이터베이스 스키마 확인이 완료되었습니다.")
 
     # [임시 테스트 모드] 모델이 아직 없을 때도 서버/WS 통신 검증이 가능하도록 분기
     # .env의 MOCK_PIPELINE_MODE=true면 YOLO를 로드하지 않습니다.
     if settings.mock_pipeline_mode:
-        logger.info("MOCK_PIPELINE_MODE=true -> YOLO load skipped.")
+        logger.info("MOCK_PIPELINE_MODE=true 설정으로 YOLO 모델 로드를 건너뜁니다.")
     else:
         # [실제 운영 모드] YOLO 모델 로드
         # 앱 시작 시 한 번만 실행되며, GPU 메모리에 상주합니다.
         try:
             # [중요] mock 모드에서 불필요한 의존성 로딩을 피하기 위해 여기서 지연 import
             from app.services.ai_service import YOLODetector
-            logger.info("Loading YOLO Pose model...")
+            logger.info("YOLO 포즈 모델을 불러오는 중입니다.")
             # log_gpu_snapshot("before_model_load")
             model_path = settings.yolo_model_path
 
@@ -65,33 +93,33 @@ async def lifespan(app: FastAPI):
             # log_gpu_snapshot("after_model_warmup")
 
             app.state.yolo_model = detector
-            logger.info("YOLO model ready.")
+            logger.info("YOLO 모델 로드가 완료되었습니다. 현재 실시간 모션 파이프라인에서는 사용하지 않습니다.")
 
         except Exception as e:
-            logger.exception("Failed to load YOLO model: %s", e)
+            logger.exception("YOLO 모델 로드에 실패했습니다: %s", e)
             # 모델 로드 실패 시 서버를 띄울지 말지 결정해야 하지만, 일단 로그만 남김
         
     yield
     # ====== [Shutdown: 시스템 종료] ======
-    logger.info("Shutdown sequence initiated.")
+    logger.info("서버 종료 절차를 진행합니다.")
     
     # 2. 카메라 리소스 해제
     try:
         if camera_manager.active:
             camera_manager.stop()
-        logger.info("Camera resource released.")
+        logger.info("카메라 리소스 정리가 완료되었습니다.")
     except Exception as e:
-        logger.exception("Error releasing camera: %s", e)
+        logger.exception("카메라 리소스 정리 중 오류가 발생했습니다: %s", e)
         
     # 3. GPU 메모리 정리 
     if hasattr(app.state, 'yolo_model'):
         del app.state.yolo_model
-        logger.info("Model unloaded.")
+        logger.info("모델 메모리 해제가 완료되었습니다.")
         
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             log_gpu_snapshot("after_cuda_empty_cache")
-            logger.info("CUDA memory cache cleared.")
+            logger.info("CUDA 메모리 캐시 정리가 완료되었습니다.")
         
 # 앱 초기화
 app = FastAPI(
@@ -105,6 +133,11 @@ app = FastAPI(
 public_dir = os.path.join(os.path.dirname(__file__), "public")
 os.makedirs(public_dir, exist_ok=True)
 app.mount("/public", StaticFiles(directory=public_dir), name="public")
+
+# Exercise audio assets for frontend playback
+assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+if os.path.isdir(assets_dir):
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
 # CORS 설정
 app.add_middleware(

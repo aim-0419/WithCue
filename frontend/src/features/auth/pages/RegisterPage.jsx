@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { setAuthSession } from "../../../utils/authStorage";
+import { getApiBase } from "../../../services/runtimeConfig";
 
 export default function RegisterPage() {
   const navigate = useNavigate();
 
-  const API_BASE =
-    import.meta.env.VITE_API_BASE || "http://192.168.0.25:8018/api/v1/auth";
+  const API_BASE = `${getApiBase()}/api/v1/auth`;
 
   const [form, setForm] = useState({
     login_id: "",

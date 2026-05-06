@@ -125,15 +125,6 @@ export default function WsCamera({
 
           const data = msg.data || {};
 
-          const kptCount = Object.keys(data.keypoints || {}).length;
-          console.log("[WS] keypoints count:", kptCount, "instance", instanceIdRef.current);
-
-          //  console.log(
-          //   "[FRAME DEBUG]",
-          //   "frame:", data.frame_w, data.frame_h,
-          //   "kpt0:", data.keypoints?.[0] || data.keypoints?.["0"]
-          // );
-
           // ref로 호출
           onStateRef.current?.(data);
 
@@ -283,13 +274,18 @@ function drawOverlay(canvas, img, data) {
   };
 
   const toScreen = (p) => {
-    // support both normalized(0~1) and pixel coords
     const isPixel = p.x > 1.5 || p.y > 1.5;
-    const nx = isPixel ? p.x / srcW : p.x;
-    const ny = isPixel ? p.y / srcH : p.y;
+
+    if (isPixel) {
+      return {
+        x: padX + p.x * scale,
+        y: padY + p.y * scale,
+      };
+    }
+
     return {
-      x: padX + nx * scale,
-      y: padY + ny * scale,
+      x: padX + p.x * drawW,
+      y: padY + p.y * drawH,
     };
   };
 

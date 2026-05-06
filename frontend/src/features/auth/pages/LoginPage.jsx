@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { setAuthSession } from "../../../utils/authStorage";
+import { getApiBase } from "../../../services/runtimeConfig";
 
-const API_BASE = "http://192.168.0.25:8018/api/v1/auth";
+const API_BASE = `${getApiBase()}/api/v1/auth`;
 
 export default function LoginPage() {
     const navigate = useNavigate();
