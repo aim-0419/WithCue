@@ -10,7 +10,6 @@ from fastapi.staticfiles import StaticFiles
 
 # 작성한 라우터 모듈 임포트
 from app.api.v1.api import router as api_router
-from app.api.v1.system import router as system_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.session import router as session_router
 from app.hardware.camera import camera_manager
@@ -54,9 +53,19 @@ for handler in logging.getLogger().handlers:
 logger = logging.getLogger(__name__)
 
 if torch.cuda.is_available():
+    logger.info(f"CUDA available: {torch.cuda.get_device_name(0)}")
+    # CUDA 캐시 관련 문제 방지
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    
     torch.backends.cudnn.enabled = False
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
+    
+    # CUDA 메모리 할당 설정 최적화
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
+else:
+    logger.warning("CUDA not available. Server will run on CPU mode.")
 
 # 서버 종료 시 카메라를 확실하게 끄기 위함
 @asynccontextmanager
@@ -69,35 +78,46 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("데이터베이스 스키마 확인이 완료되었습니다.")
 
-    # [임시 테스트 모드] 모델이 아직 없을 때도 서버/WS 통신 검증이 가능하도록 분기
-    # .env의 MOCK_PIPELINE_MODE=true면 YOLO를 로드하지 않습니다.
+    # [2026-05-14] 현재 MediaPipe 사용 중, YOLO는 미사용 상태
+    # 향후 YOLO 사용 시 아래를 주석 해제하면 됨
+    #========== YOLO 로드 (주석 처리) ==========
     if settings.mock_pipeline_mode:
         logger.info("MOCK_PIPELINE_MODE=true 설정으로 YOLO 모델 로드를 건너뜁니다.")
     else:
-        # [실제 운영 모드] YOLO 모델 로드
-        # 앱 시작 시 한 번만 실행되며, GPU 메모리에 상주합니다.
         try:
-            # [중요] mock 모드에서 불필요한 의존성 로딩을 피하기 위해 여기서 지연 import
+            # 초기 CUDA 캐시 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.reset_peak_memory_stats()
+                logger.info("CUDA cache cleared before model loading")
+            
             from app.services.ai_service import YOLODetector
             logger.info("YOLO 포즈 모델을 불러오는 중입니다.")
-            # log_gpu_snapshot("before_model_load")
             model_path = settings.yolo_model_path
-
-            # 모델 로드
+            
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"YOLO model not found at {model_path}")
+            logger.info(f"Model file confirmed at: {model_path}")
+    
             detector = YOLODetector(model_path)
-            # log_gpu_snapshot("after_model_load")
-
-            # [추가] 미리 한 번 실행해서 메모리 공간 확보
-            # 이거 안하면 첫 접속자가 들어올 때 렉이 걸리거나 메모리가 터질 수 있습니다.
+            logger.info("YOLO 모델 웜업 중...")
             detector.warmup()
-            # log_gpu_snapshot("after_model_warmup")
-
+            logger.info("YOLO 모델 웜업 완료")
+    
             app.state.yolo_model = detector
-            logger.info("YOLO 모델 로드가 완료되었습니다. 현재 실시간 모션 파이프라인에서는 사용하지 않습니다.")
-
+            logger.info("✅ YOLO 모델 로드가 완료되었습니다.")
+    
         except Exception as e:
-            logger.exception("YOLO 모델 로드에 실패했습니다: %s", e)
-            # 모델 로드 실패 시 서버를 띄울지 말지 결정해야 하지만, 일단 로그만 남김
+            logger.exception(f"❌ YOLO 모델 로드에 실패했습니다: {e}")
+            if torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except:
+                    pass
+   # ========== 주석 처리 끝 ==========
+    
+    
+    
         
     yield
     # ====== [Shutdown: 시스템 종료] ======
@@ -149,7 +169,6 @@ app.add_middleware(
 )
 
 # 라우터 등록
-app.include_router(system_router, prefix="/api/v1/system", tags=["System"])
 # 조현석API통신테스트: 프론트가 호출하는 주요 API/WS 라우터 등록 지점
 app.include_router(api_router, prefix="/api/v1")
 # 조현석API통신테스트: 프론트 회원가입/로그인 API 라우터 등록 지점

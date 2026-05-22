@@ -2,27 +2,50 @@ import numpy as np
 from ultralytics import YOLO
 import torch
 import logging
+from pathlib import Path
 from app.core.gpu_debug import log_gpu_snapshot
 
 logger = logging.getLogger(__name__)
 
 class YOLODetector:
     def __init__(self, model_path: str, device="cuda"):
-        # 모델 로드
-        self.device = device if device == "cuda" and torch.cuda.is_available() else "cpu"
-        self.use_half = self.device == "cuda"
-        self.model = YOLO(model_path)
+        # 초기 CUDA 메모리 정리 및 캐시 클리어
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.empty_cache()
+            logger.info("[YOLO] Clearing CUDA cache before model loading...")
         
-        # Jetson 최적화: PF16(Half Precision) 모드로 전환 확인
-        # (Ultralytics는 자동 감지하지만, 명시적으로 확인하면 좋음)
-        if self.device == "cuda":
-            self.model.to("cuda")
-            print(f"[YOLO] Running on {torch.cuda.get_device_name(0)}")
-            # log_gpu_snapshot("yolo_detector_initialized_cuda")
-        else:
-            self.model.to("cpu")
-            print("[YOLO] Running on CPU")
-            # log_gpu_snapshot("yolo_detector_initialized_cpu")
+        # 모델 로드: CPU에서 먼저 로드 후 GPU로 이동하여 메모리 할당 오류 방지
+        self.device = "cpu"  # 초기에는 CPU에서 로드
+        self.use_half = False
+        
+        try:
+            logger.info(f"[YOLO] Loading model from {model_path}...")
+            self.model = YOLO(model_path)
+            logger.info("[YOLO] Model loaded on CPU successfully.")
+            
+            # GPU 사용 가능 시 GPU로 이동 시도
+            if device == "cuda" and torch.cuda.is_available():
+                try:
+                    logger.info("[YOLO] Attempting to move model to CUDA...")
+                    self.model.to("cuda")
+                    self.device = "cuda"
+                    self.use_half = True
+                    logger.info(f"[YOLO] Successfully running on GPU: {torch.cuda.get_device_name(0)}")
+                    log_gpu_snapshot("yolo_detector_initialized_cuda")
+                except RuntimeError as e:
+                    logger.warning(f"[YOLO] Failed to load on CUDA (will use CPU): {e}")
+                    torch.cuda.empty_cache()
+                    self.device = "cpu"
+                    self.use_half = False
+                    logger.info("[YOLO] Falling back to CPU mode.")
+            else:
+                logger.info("[YOLO] CUDA not available. Running on CPU.")
+                
+        except Exception as e:
+            logger.error(f"[YOLO] Critical error loading model: {e}", exc_info=True)
+            logger.error(f"[YOLO] Checking file exists: {Path(model_path).exists()}")
+            raise
 
     def _switch_to_cpu(self):
         if self.device == "cpu":
@@ -60,10 +83,6 @@ class YOLODetector:
         frame: BGR numpy image (OpenCV format)
         return: YOLO Result object
         """
-        # stream=True는 메모리를 아끼지만, 여기선 즉시 결과를 원하므로 리스트의 첫 번째를 가져옴
-        # verbose=False: 콘솔에 로그 도배 방지
-        # if self.device == "cuda":
-        #     log_gpu_snapshot("before_infer")
         try:
             results = self.model.predict(
                 frame,
@@ -75,14 +94,24 @@ class YOLODetector:
             )
         except RuntimeError as e:
             message = str(e)
-            if self.device == "cuda" and (
-                "CUBLAS_STATUS_ALLOC_FAILED" in message
-                or "CUDA error" in message
-                or "out of memory" in message.lower()
-            ):
+            cuda_errors = (
+                "CUBLAS_STATUS_ALLOC_FAILED",
+                "CUDA error",
+                "out of memory",
+                "NVML_SUCCESS",
+                "INTERNAL ASSERT FAILED",
+                "CUDACachingAllocator"
+            )
+            
+            if self.device == "cuda" and any(err in message for err in cuda_errors):
+                logger.error(f"[YOLO] CUDA memory allocation error: {e}", exc_info=True)
                 log_gpu_snapshot("cuda_infer_failure", level=logging.ERROR)
-                logger.exception("CUDA inference error. Retrying on CPU: %s", e)
+                
+                # GPU 메모리 응급 정리
                 self._switch_to_cpu()
+                
+                # CPU에서 재시도
+                logger.info("[YOLO] Retrying inference on CPU...")
                 results = self.model.predict(
                     frame,
                     device=self.device,
@@ -93,4 +122,5 @@ class YOLODetector:
                 )
             else:
                 raise
+        
         return results[0]

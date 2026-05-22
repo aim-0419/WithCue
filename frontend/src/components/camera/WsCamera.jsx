@@ -184,7 +184,7 @@ export default function WsCamera({
           inset:0;
           width:100%;
           height:100%;
-          object-fit:cover;
+          object-fit:contain;
           display:block;
         }
         .ws-canvas{
@@ -192,6 +192,7 @@ export default function WsCamera({
           inset:0;
           width:100%;
           height:100%;
+          object-fit:contain;
           pointer-events:none;
         }
         .ws-ph{
@@ -261,7 +262,7 @@ function drawOverlay(canvas, img, data) {
   const srcH = data?.frame_h || img.naturalHeight || 720;
 
   // object-fit: cover 보정
-  const scale = Math.max(dstW / srcW, dstH / srcH);
+  const scale = Math.min(dstW / srcW, dstH / srcH);
   const drawW = srcW * scale;
   const drawH = srcH * scale;
   const padX = (dstW - drawW) / 2;

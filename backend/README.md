@@ -92,7 +92,6 @@ backend/
     - Startup : YOLO 모델 로드(YOLODetector(moel_path)) 및 warmup() 호출
     - Shutdown : 카메라 자원 해제(camera_manager.stop()), 모델 삭제 및 CUDA 캐시 비움(조건부).
 - 라우터 등록 : 
-    - /api/v1/system -> system_router
     - /api/v1 -> api_router 웹소켓 엔드포인트 포함
 - 단순 라우트 :
     - read_root() : 상태 JSON 반환.

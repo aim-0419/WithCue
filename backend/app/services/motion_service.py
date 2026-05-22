@@ -1,10 +1,13 @@
 import asyncio
 import base64
+import copy
 import cv2
 import json
 import logging
 import math
 import os
+import queue
+import threading
 import time
 from datetime import datetime
 from fastapi import WebSocket, WebSocketDisconnect
@@ -41,6 +44,9 @@ class MotionService:
         self.record_features_path = None
         self.record_features = []
         self.video_writer = None
+        self.record_queue = None
+        self.record_worker = None
+        self.record_drop_count = 0
         
         BaseOptions = mp.tasks.BaseOptions
         PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
@@ -145,76 +151,85 @@ class MotionService:
                     continue
                 empty_frame_count = 0
 
-                # 2. MediaPipe feature 추출 (YOLO 비활성화)
+                # 기본값 초기화
                 keypoints = {}
                 mp_features = None
+
+                # 2. YOLO feature 추출
                 try:
-                    h, w = frame.shape[:2]
-                    mp_frame_bgr = frame # 오른팔용 mirror
-                    if self.processor and getattr(self.processor, "mirror_input", False):
-                        mp_frame_bgr = cv2.flip(frame, 1)
+                    infer_frame = cv2.resize(
+                        frame,
+                        (STREAM_FRAME_W, STREAM_FRAME_H)
+                    )
 
-                    mp_frame_rgb = cv2.cvtColor(mp_frame_bgr, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=mp_frame_rgb)
-                    mp_result = self.mp_landmarker.detect_for_video(mp_image, self.mp_timestamp_ms)
-                    self.mp_timestamp_ms += 33  # 대략 30fps 기준
+                    results = self.yolo.infer(
+                        infer_frame
+                    )
 
-                    if mp_result.pose_landmarks:
-                        lms = mp_result.pose_landmarks[0]
-                        pts = {}
+                    print("[DEBUG YOLO RESULT TYPE]", type(results))
 
-                        for i, lm in enumerate(lms):
-                            vis = getattr(lm, "visibility", 1.0)
-                            if vis < 0.5:
-                                continue
+                    if results is not None and len(results) > 0:
 
-                            x = lm.x * STREAM_FRAME_W
-                            y = lm.y * STREAM_FRAME_H
-                            pts[i] = (x, y)
-                        logger.debug("[MP] pts_count=%s conn=%s", len(pts), self.conn_id)
+                        if results[0].keypoints is not None:
 
-                        # MediaPipe -> COCO17 매핑 (프론트 스켈레톤/기존 규칙용)
-                        mp_to_coco = {
-                            0: 0,   # nose
-                            2: 1,   # left_eye
-                            5: 2,   # right_eye
-                            7: 3,   # left_ear
-                            8: 4,   # right_ear
-                            11: 5,  # left_shoulder
-                            12: 6,  # right_shoulder
-                            13: 7,  # left_elbow
-                            14: 8,  # right_elbow
-                            15: 9,  # left_wrist
-                            16: 10, # right_wrist
-                            23: 11, # left_hip
-                            24: 12, # right_hip
-                            25: 13, # left_knee
-                            26: 14, # right_knee
-                            27: 15, # left_ankle
-                            28: 16, # right_ankle
-                        }
+                            kpts = results[0].keypoints
 
-                        coco_keypoints = {}
-                        for mp_idx, coco_idx in mp_to_coco.items():
-                            if mp_idx not in pts:
-                                continue
-                            px, py = pts[mp_idx]
-                            coco_keypoints[coco_idx] = {
-                                "x": float(px),
-                                "y": float(py),
-                            }
-                        if coco_keypoints:
-                            keypoints = coco_keypoints
+                            if kpts.xy is not None and len(kpts.xy) > 0:
 
-                        if self.processor and hasattr(self.processor, "extract_mp_features"):
-                            mp_features = self.processor.extract_mp_features(pts)
-                            logger.debug("[MP] extracted features=%s conn=%s", mp_features, self.conn_id)
-                        else:
-                            mp_features = None
+                                xy = kpts.xy[0].cpu().numpy()
+
+                                conf = (
+                                    kpts.conf[0].cpu().numpy()
+                                    if kpts.conf is not None
+                                    else None
+                                )
+
+                                pts = {}
+
+                                for i, p in enumerate(xy):
+
+                                    if conf is not None and conf[i] < 0.3:
+                                        continue
+
+                                    x, y = float(p[0]), float(p[1])
+                                    pts[i] = (x, y)
+                                    
+                                    if i in [5, 6, 11, 12, 13, 14, 15, 16]:
+                                        print(
+                                            "[DEBUG KPT]",
+                                            i,
+                                            "x=", round(x, 1),
+                                            "y=", round(y, 1),
+                                            "frame_shape=", frame.shape,
+                                        )
+
+                                keypoints = {
+                                    i:{
+                                        "x": float(v[0]),
+                                        "y": float(v[1])
+                                    }
+                                    for i,v in pts.items()
+                                }
+
+                                if (
+                                    self.processor
+                                    and hasattr(
+                                        self.processor,
+                                        "extract_mp_features"
+                                    )
+                                ):
+                                    mp_features = (
+                                        self.processor.extract_mp_features(
+                                            pts
+                                        )
+                                    )
 
                 except Exception as e:
-                    logger.exception("MediaPipe feature 추출 중 오류가 발생했습니다: %s", e)
-                    mp_features = None
+
+                    logger.exception(
+                        "YOLO feature 추출 실패: %s",
+                        e
+                    )
                     
                 # 3. 로직 수행
                 data = {}
@@ -350,6 +365,14 @@ class MotionService:
         )
         self.record_features = []
         self.recording_active = True
+        self.record_drop_count = 0
+        self.record_queue = queue.Queue(maxsize=24)
+        self.record_worker = threading.Thread(
+            target=self._record_worker_loop,
+            name=f"record_writer_{self.conn_id}",
+            daemon=True,
+        )
+        self.record_worker.start()
         logger.info(
             "녹화를 시작했습니다. video=%s features=%s conn=%s",
             self.record_video_path,
@@ -361,22 +384,66 @@ class MotionService:
         if not self.recording_active:
             return
         try:
-            resized = cv2.resize(frame, (STREAM_FRAME_W, STREAM_FRAME_H))
-            if self.video_writer is not None:
-                self.video_writer.write(resized)
-            self.record_features.append(
+            if self.record_queue is None:
+                return
+            self.record_queue.put_nowait(
                 {
+                    "frame": frame.copy(),
                     "ts": time.time(),
                     "accuracy_pct": accuracy_pct,
-                    "mp_features": mp_features,
+                    "mp_features": copy.deepcopy(mp_features),
                 }
             )
+        except queue.Full:
+            self.record_drop_count += 1
+            if self.record_drop_count == 1 or self.record_drop_count % 30 == 0:
+                logger.warning(
+                    "녹화 큐가 가득 차 프레임을 건너뜁니다. dropped=%s conn=%s",
+                    self.record_drop_count,
+                    self.conn_id,
+                )
         except Exception as e:
             logger.exception("녹화 프레임 저장 중 오류가 발생했습니다: %s", e)
+
+    def _record_worker_loop(self):
+        while True:
+            item = None
+            try:
+                if self.record_queue is None:
+                    return
+                item = self.record_queue.get()
+                if item is None:
+                    return
+                frame = item.get("frame")
+                if frame is not None and self.video_writer is not None:
+                    resized = cv2.resize(frame, (STREAM_FRAME_W, STREAM_FRAME_H))
+                    self.video_writer.write(resized)
+                self.record_features.append(
+                    {
+                        "ts": item.get("ts"),
+                        "accuracy_pct": item.get("accuracy_pct"),
+                        "mp_features": item.get("mp_features"),
+                    }
+                )
+            except Exception as e:
+                logger.exception("녹화 worker 처리 중 오류가 발생했습니다: %s", e)
+            finally:
+                if item is not None and self.record_queue is not None:
+                    self.record_queue.task_done()
 
     def _stop_recording(self, reason):
         if not self.recording_active:
             return
+        try:
+            if self.record_queue is not None:
+                self.record_queue.put(None)
+        except Exception:
+            pass
+        try:
+            if self.record_worker is not None:
+                self.record_worker.join(timeout=2.0)
+        except Exception as e:
+            logger.exception("녹화 worker 종료 중 오류가 발생했습니다: %s", e)
         try:
             if self.video_writer is not None:
                 self.video_writer.release()
@@ -404,6 +471,8 @@ class MotionService:
         self.recording_active = False
         self.video_writer = None
         self.record_features = []
+        self.record_queue = None
+        self.record_worker = None
 
     def _get_exercise_tag(self):
         if self.processor is None:

@@ -408,6 +408,73 @@ def get_knee_raise_right_features_mp(pts: dict):
         round(right_knee_angle, 3),
         round(right_ankle_rel_y, 3),
     ]   
+# -------한쪽 무릎 들어올리기(무릎운동)_yolo------------------------------------------------ 
+def get_knee_raise_right_features_yolo(pts: dict):
+    """
+    YOLOv8 Pose COCO 기준 오른다리 SLR / 무릎운동 feature 추출
+
+    YOLO 번호:
+    5  : left_shoulder
+    6  : right_shoulder
+    11 : left_hip
+    12 : right_hip
+    14 : right_knee
+    16 : right_ankle
+    """
+    required = [6, 11, 12, 14, 16]
+    if not all(i in pts for i in required):
+        return None
+
+    right_sh = pts[6]
+    left_hip = pts[11]
+    right_hip = pts[12]
+    right_knee = pts[14]
+    right_ankle = pts[16]
+
+    trunk = line_angle_from_vertical(right_sh, right_hip)
+    if trunk is None:
+        return None
+
+    pelvic = line_angle_from_horizontal(left_hip, right_hip)
+    if pelvic is None:
+        return None
+
+    right_hip_flexion = calc_angle(right_sh, right_hip, right_knee)
+    if right_hip_flexion is None:
+        return None
+
+    right_knee_angle = calc_angle(right_hip, right_knee, right_ankle)
+    if right_knee_angle is None:
+        return None
+
+    right_ankle_rel_y = float(abs(right_hip[1] - right_ankle[1]))
+
+    return [
+        round(right_hip_flexion, 3),
+        round(right_knee_angle, 3),
+        round(right_ankle_rel_y, 3),
+    ]
+
+# 좌우반전
+def flip_yolo_left_right(pts: dict):
+    """
+    YOLOv8 Pose COCO keypoint 좌우 반전
+    """
+    swap_pairs = {
+        5: 6, 6: 5,       # shoulder
+        7: 8, 8: 7,       # elbow
+        9: 10, 10: 9,     # wrist
+        11: 12, 12: 11,   # hip
+        13: 14, 14: 13,   # knee
+        15: 16, 16: 15,   # ankle
+    }
+
+    flipped = {}
+    for k, v in pts.items():
+        flipped_key = swap_pairs.get(k, k)
+        flipped[flipped_key] = v
+
+    return flipped
 
 # -------목 좌우 회전(목운동)------------------------------------------------
 def get_neck_rotation_features_mp(pts: dict):
@@ -502,7 +569,66 @@ def get_neck_rotation_features_mp(pts: dict):
         round(float(head_tilt), 3),
         round(float(shoulder_line_angle), 3),
     ]
-    
+
+# --------------------------------------------------------------------------------------------------------------------
+# YOLO 기반 레퍼런스 추출 목운동
+def get_neck_rotation_features_yolo(pts: dict):
+    """
+    YOLOv8 Pose COCO keypoint 기준 목 좌우 회전 feature 추출
+
+    YOLO 번호:
+    0  : nose
+    3  : left_ear
+    4  : right_ear
+    5  : left_shoulder
+    6  : right_shoulder
+    11 : left_hip
+    12 : right_hip
+    """
+    required = [0, 3, 4, 5, 6, 11, 12]
+    if not all(i in pts for i in required):
+        return None
+
+    nose = pts[0]
+    left_ear = pts[3]
+    right_ear = pts[4]
+    left_sh = pts[5]
+    right_sh = pts[6]
+    left_hip = pts[11]
+    right_hip = pts[12]
+
+    shoulder_mid = midpoint(left_sh, right_sh)
+    hip_mid = midpoint(left_hip, right_hip)
+
+    trunk_rotation = line_angle_from_vertical(shoulder_mid, hip_mid)
+    if trunk_rotation is None:
+        return None
+
+    ear_mid = midpoint(left_ear, right_ear)
+    half_ear_dist = abs(right_ear[0] - left_ear[0]) / 2.0
+
+    if half_ear_dist < 1e-6:
+        return None
+
+    neck_turn_ratio = (nose[0] - ear_mid[0]) / half_ear_dist
+    neck_turn_ratio = float(np.clip(neck_turn_ratio, -1.5, 1.5))
+    neck_turn_angle = neck_turn_ratio * 60.0
+
+    head_tilt = line_angle_from_vertical(nose, shoulder_mid)
+    if head_tilt is None:
+        return None
+
+    shoulder_line_angle = line_angle_from_horizontal(left_sh, right_sh)
+    if shoulder_line_angle is None:
+        return None
+
+    return [
+        round(float(trunk_rotation), 3),
+        round(float(neck_turn_angle), 3),
+        round(float(head_tilt), 3),
+        round(float(shoulder_line_angle), 3),
+    ]
+
 # -----------공용-------------------------------------------------------------------------------------------------------
 # 좌우 반전용 함수
 def flip_mediapipe_left_right(pts: dict):

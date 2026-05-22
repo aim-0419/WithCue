@@ -54,6 +54,8 @@ async def measure_endpoint(
         return
 
     yolo_model = getattr(websocket.app.state, "yolo_model", None)
+    print("[DEBUG DTW] app.state dict =", websocket.app.state.__dict__)
+    print("[DEBUG DTW] yolo_model =", yolo_model)
     if yolo_model is None:
         await _send_model_unavailable(
             websocket,
@@ -159,6 +161,19 @@ async def dtw_endpoint(
         return
     
     yolo_model = getattr(websocket.app.state, "yolo_model", None)
+    print(
+        "[DEBUG DTW] app.state dict =",
+        websocket.app.state.__dict__
+    )
+
+    print(
+        "[DEBUG DTW] yolo_model =",
+        getattr(
+            websocket.app.state,
+            "yolo_model",
+            None
+        )
+    )
     if yolo_model is None:
         await _send_model_unavailable(
             websocket,
@@ -205,7 +220,7 @@ async def dtw_endpoint(
         
     elif exercise == "knee_raise_right":
         dtw_engine = KneeRaiseRightDTW(
-            "./app/assets/reference/knee_raise_left_reference_mp.json"
+            "./app/assets/reference/knee_raise_left_reference_yolo.json"
         )
         processor = KneeRaiseRightDTWProcessor(
             dtw_engine,
@@ -214,12 +229,13 @@ async def dtw_endpoint(
 
     elif exercise == "knee_raise_left":
         dtw_engine = KneeRaiseRightDTW(
-            "./app/assets/reference/knee_raise_left_reference_mp.json"
+            "./app/assets/reference/knee_raise_left_reference_yolo.json"
         )
         processor = KneeRaiseRightDTWProcessor(
             dtw_engine,
             use_left_flip=True,
         )
+        
     elif exercise == "neck_rotation":
         dtw_engine = NeckRotationDTW(
             ref_path="./app/assets/reference/neck_rotation_reference_mp.json"
