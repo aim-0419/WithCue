@@ -45,30 +45,6 @@ def extract_keypoints(result) -> dict:
         
     return keypoints_dict
 
-def extract_2d_center(result):
-    """
-    가장 큰 사람의 Bounding Box 중심점 반환
-    (이 함수는 그대로 두셔도 됩니다)
-    """
-    if result.boxes is None:
-        return None
-    
-    boxes = result.boxes.xyxy.cpu().numpy()
-    if len(boxes) == 0:
-        return None
-    
-    # 박스 면적 계산
-    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
-    
-    # 가장 큰 박스 선택
-    idx = areas.argmax()
-    
-    x1, y1, x2, y2 = boxes[idx]
-    cx = int((x1 + x2) / 2)
-    cy = int((y1 + y2) / 2)
-    
-    return (cx, cy)
-
 class AngleSmoother:
     def __init__(self, alpha=0.5):
         """

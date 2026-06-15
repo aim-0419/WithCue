@@ -15,7 +15,6 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     text,
-    inspect,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from app.core.config import settings
@@ -24,13 +23,7 @@ from app.core.config import settings
 # 설정값은 core/config.py에서 일괄 로드합니다.
 DATABASE_URL = settings.database_url
 
-# SQLite는 스레드 옵션이 필요하고, MySQL은 일반 풀 옵션만 사용
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(
-        DATABASE_URL, connect_args={"check_same_thread": False}, pool_pre_ping=True
-    )
-else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -263,26 +256,4 @@ def get_db():
 def init_db():
     """현재 선언된 ORM 모델 기준으로 테이블 생성."""
     Base.metadata.create_all(bind=engine)
-    _ensure_users_login_id_column()
 
-
-def _ensure_users_login_id_column():
-    """
-    기존 운영 DB에 login_id 컬럼이 없을 수 있어 시작 시 보정합니다.
-    """
-    inspector = inspect(engine)
-    columns = {column["name"] for column in inspector.get_columns("users")}
-    if "login_id" in columns:
-        return
-
-    with engine.begin() as conn:
-        if engine.dialect.name == "sqlite":
-            conn.execute(text("ALTER TABLE users ADD COLUMN login_id VARCHAR(50)"))
-            conn.execute(text("UPDATE users SET login_id = phone_number WHERE login_id IS NULL"))
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_login_id ON users (login_id)"))
-        else:
-            conn.execute(text("ALTER TABLE users ADD COLUMN login_id VARCHAR(50) NULL"))
-            conn.execute(text("UPDATE users SET login_id = phone_number WHERE login_id IS NULL"))
-            conn.execute(text("ALTER TABLE users MODIFY COLUMN login_id VARCHAR(50) NOT NULL"))
-            conn.execute(text("CREATE UNIQUE INDEX ix_users_login_id ON users (login_id)"))
-    

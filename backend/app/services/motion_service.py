@@ -16,9 +16,7 @@ from starlette.websockets import WebSocketState
 from app.core.monitor import SystemMonitor
 from app.hardware.camera import camera_manager
 from app.core.utils import extract_keypoints
-from app.services.processors import BaseProcessor
-from app.services.dtw_feature_extractor import get_bird_dog_features_mp
-import mediapipe as mp
+from app.exercises.shared.base import BaseProcessor
 
 STREAM_FRAME_W = 640
 STREAM_FRAME_H = 360
@@ -47,26 +45,6 @@ class MotionService:
         self.record_queue = None
         self.record_worker = None
         self.record_drop_count = 0
-        
-        BaseOptions = mp.tasks.BaseOptions
-        PoseLandmarkerOptions = mp.tasks.vision.PoseLandmarkerOptions
-        VisionRunningMode = mp.tasks.vision.RunningMode
-        PoseLandmarker = mp.tasks.vision.PoseLandmarker
-
-        model_path = "./app/assets/models/pose_landmarker_full.task"
-
-        options = PoseLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=model_path),
-            running_mode=VisionRunningMode.VIDEO,
-            num_poses=1,
-            min_pose_detection_confidence=0.6,
-            min_pose_presence_confidence=0.6,
-            min_tracking_confidence=0.6,
-            output_segmentation_masks=False,
-        )
-
-        self.mp_landmarker = PoseLandmarker.create_from_options(options)
-        self.mp_timestamp_ms = 0       
         self.public_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "public"))
         self.recordings_dir = os.path.join(self.public_dir, "recordings")
         self.features_dir = os.path.join(self.public_dir, "features")

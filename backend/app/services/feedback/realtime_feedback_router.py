@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from app.services.feedback.realtime_feedback_birddog import extract_birddog_issues
-from app.services.feedback.realtime_feedback_kneeraiseright import extract_knee_raise_right_issues
-from app.services.feedback.realtime_feedback_neckrotation import extract_neck_rotation_issues
-from app.services.feedback.realtime_feedback_shoulderfrontraise import extract_shoulder_front_raise_issues
+from app.exercises.bird_dog.feedback import extract_birddog_issues
+from app.exercises.knee_raise.feedback import extract_knee_raise_right_issues
+from app.exercises.neck_rotation.feedback import extract_neck_rotation_issues
+from app.exercises.shoulder_front_raise.feedback import extract_shoulder_front_raise_issues
 
 
 Extractor = {

@@ -51,22 +51,6 @@ def calculate_angle(p1: Union[Dict, List], p2: Union[Dict, List], p3: Union[Dict
     
     return math.degrees(angle_rad)
 
-def calculate_distance(p1: Union[Dict, List], p2: Union[Dict, List]) -> float:
-    """ 두 점 사이의 유클리드 거리 계산 """
-    x1, y1 = _get_coords(p1)
-    x2, y2 = _get_coords(p2)
-    return math.hypot(x1 - x2, y1 - y2)
-    
-def get_midpoint(p1: Union[Dict, List], p2: Union[Dict, List]) -> Dict[str, float]:
-    """ 두 점의 중점 좌표 반환 """
-    x1, y1 = _get_coords(p1)
-    x2, y2 = _get_coords(p2)
-    
-    return {
-        'x': (x1 + x2) / 2,
-        'y': (y1 + y2) / 2,
-    }
-    
 def calculate_3d_angle(p1: Any, p2: Any, p3: Any) -> float:
     """
     3D 공간상의 세 점(p1-p2-p3) 사이의 각도를 계산 (p2가 중심점)
@@ -130,11 +114,11 @@ def calculate_angle_2d(p1, center, p2):
         float: 각도 (도, degree)
     """
     # 1. 벡터 생성 (중심점 기준)
-    v1_x = p1['x_m'] - center['x_m']    
-    v1_y = p1['x_m'] - center['y_m']    
-    
-    v2_x = p1['x_m'] - center['x_m']    
-    v2_y = p1['x_m'] - center['y_m']    
+    v1_x = p1['x_m'] - center['x_m']
+    v1_y = p1['y_m'] - center['y_m']
+
+    v2_x = p2['x_m'] - center['x_m']
+    v2_y = p2['y_m'] - center['y_m']
     
     # 2. 내적(Dot Product)과 벡터의 크기(Magnitude) 계산
     dot_product = v1_x * v2_x + v1_y * v2_y

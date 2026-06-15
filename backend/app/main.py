@@ -9,9 +9,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # 작성한 라우터 모듈 임포트
-from app.api.v1.api import router as api_router
-from app.api.v1.auth import router as auth_router
-from app.api.v1.session import router as session_router
+from app.api.api import router as api_router
+from app.api.auth import router as auth_router
+from app.api.session import router as session_router
 from app.hardware.camera import camera_manager
 from app.core.database import init_db
 from app.core.config import settings

@@ -11,6 +11,9 @@ env/
 # (선택) 모델 파일이 너무 크면 깃허브에 안 올라갈 수 있습니다. (100MB 이상)
 # yolo11n-pose.pt 같은 small 모델은 보통 올라갑니다.
 
+# Local dev database
+*.db
+
 # Runtime artifacts
 logs/*.log
 logs/*.csv
