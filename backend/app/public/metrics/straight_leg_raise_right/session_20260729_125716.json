@@ -1,0 +1,869 @@
+{
+  "exercise": "straight_leg_raise_right",
+  "conn_id": 281470735039408,
+  "session_start": "2026-07-29T12:57:09",
+  "duration_sec": 6.73,
+  "frame_count": 105,
+  "fps_actual": 15.44,
+  "latency_ms": {
+    "loop": {
+      "count": 105,
+      "min": 56.0,
+      "max": 1544.0,
+      "mean": 78.55,
+      "p50": 65.0,
+      "p95": 74.0
+    },
+    "infer": {
+      "count": 105,
+      "min": 39.87,
+      "max": 84.45,
+      "mean": 47.25,
+      "p50": 46.87,
+      "p95": 53.98
+    }
+  },
+  "similarity": null,
+  "frames": [
+    {
+      "t": 0.0,
+      "loop_ms": 1544.0,
+      "infer_ms": 84.45,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.086,
+      "loop_ms": 86.0,
+      "infer_ms": 63.93,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.165,
+      "loop_ms": 79.0,
+      "infer_ms": 58.71,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.24,
+      "loop_ms": 75.0,
+      "infer_ms": 57.74,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.319,
+      "loop_ms": 79.0,
+      "infer_ms": 58.05,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.392,
+      "loop_ms": 73.0,
+      "infer_ms": 53.98,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.458,
+      "loop_ms": 65.0,
+      "infer_ms": 46.77,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.53,
+      "loop_ms": 72.0,
+      "infer_ms": 53.4,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.609,
+      "loop_ms": 79.0,
+      "infer_ms": 59.7,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.684,
+      "loop_ms": 74.0,
+      "infer_ms": 53.13,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.74,
+      "loop_ms": 56.0,
+      "infer_ms": 39.87,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.804,
+      "loop_ms": 63.0,
+      "infer_ms": 45.28,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.866,
+      "loop_ms": 62.0,
+      "infer_ms": 44.96,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.93,
+      "loop_ms": 64.0,
+      "infer_ms": 46.28,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 0.996,
+      "loop_ms": 65.0,
+      "infer_ms": 47.53,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.062,
+      "loop_ms": 66.0,
+      "infer_ms": 48.72,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.128,
+      "loop_ms": 66.0,
+      "infer_ms": 48.59,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.194,
+      "loop_ms": 66.0,
+      "infer_ms": 48.37,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.259,
+      "loop_ms": 65.0,
+      "infer_ms": 47.04,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.322,
+      "loop_ms": 62.0,
+      "infer_ms": 44.57,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.383,
+      "loop_ms": 60.0,
+      "infer_ms": 43.34,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.444,
+      "loop_ms": 61.0,
+      "infer_ms": 43.52,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.505,
+      "loop_ms": 61.0,
+      "infer_ms": 42.86,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.569,
+      "loop_ms": 63.0,
+      "infer_ms": 45.4,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.632,
+      "loop_ms": 62.0,
+      "infer_ms": 45.38,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.698,
+      "loop_ms": 66.0,
+      "infer_ms": 48.55,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.766,
+      "loop_ms": 68.0,
+      "infer_ms": 50.74,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.832,
+      "loop_ms": 66.0,
+      "infer_ms": 47.92,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.898,
+      "loop_ms": 66.0,
+      "infer_ms": 48.37,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 1.965,
+      "loop_ms": 67.0,
+      "infer_ms": 48.9,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.03,
+      "loop_ms": 65.0,
+      "infer_ms": 47.92,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.096,
+      "loop_ms": 65.0,
+      "infer_ms": 47.9,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.161,
+      "loop_ms": 65.0,
+      "infer_ms": 47.19,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.224,
+      "loop_ms": 63.0,
+      "infer_ms": 45.08,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.286,
+      "loop_ms": 61.0,
+      "infer_ms": 43.64,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.347,
+      "loop_ms": 61.0,
+      "infer_ms": 43.8,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.408,
+      "loop_ms": 61.0,
+      "infer_ms": 43.51,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.472,
+      "loop_ms": 64.0,
+      "infer_ms": 45.71,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.534,
+      "loop_ms": 62.0,
+      "infer_ms": 44.72,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.598,
+      "loop_ms": 64.0,
+      "infer_ms": 46.41,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.665,
+      "loop_ms": 67.0,
+      "infer_ms": 49.02,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.732,
+      "loop_ms": 67.0,
+      "infer_ms": 49.54,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.799,
+      "loop_ms": 66.0,
+      "infer_ms": 49.2,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.868,
+      "loop_ms": 68.0,
+      "infer_ms": 51.16,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 2.937,
+      "loop_ms": 68.0,
+      "infer_ms": 50.81,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.0,
+      "loop_ms": 62.0,
+      "infer_ms": 45.06,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.067,
+      "loop_ms": 67.0,
+      "infer_ms": 49.62,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.133,
+      "loop_ms": 66.0,
+      "infer_ms": 49.12,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.2,
+      "loop_ms": 66.0,
+      "infer_ms": 48.46,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.265,
+      "loop_ms": 65.0,
+      "infer_ms": 47.75,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.331,
+      "loop_ms": 65.0,
+      "infer_ms": 47.89,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.397,
+      "loop_ms": 66.0,
+      "infer_ms": 48.65,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.464,
+      "loop_ms": 66.0,
+      "infer_ms": 48.81,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.53,
+      "loop_ms": 66.0,
+      "infer_ms": 48.62,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.596,
+      "loop_ms": 66.0,
+      "infer_ms": 48.51,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.661,
+      "loop_ms": 65.0,
+      "infer_ms": 47.31,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.724,
+      "loop_ms": 63.0,
+      "infer_ms": 45.34,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.786,
+      "loop_ms": 62.0,
+      "infer_ms": 43.98,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.847,
+      "loop_ms": 61.0,
+      "infer_ms": 43.79,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.909,
+      "loop_ms": 62.0,
+      "infer_ms": 43.57,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 3.972,
+      "loop_ms": 63.0,
+      "infer_ms": 45.24,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.035,
+      "loop_ms": 63.0,
+      "infer_ms": 45.35,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.1,
+      "loop_ms": 65.0,
+      "infer_ms": 46.87,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.159,
+      "loop_ms": 59.0,
+      "infer_ms": 41.92,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.218,
+      "loop_ms": 59.0,
+      "infer_ms": 41.39,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.279,
+      "loop_ms": 61.0,
+      "infer_ms": 43.39,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.341,
+      "loop_ms": 62.0,
+      "infer_ms": 43.12,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.404,
+      "loop_ms": 63.0,
+      "infer_ms": 45.63,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.464,
+      "loop_ms": 60.0,
+      "infer_ms": 42.69,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.524,
+      "loop_ms": 59.0,
+      "infer_ms": 42.64,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.585,
+      "loop_ms": 61.0,
+      "infer_ms": 43.67,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.646,
+      "loop_ms": 60.0,
+      "infer_ms": 43.2,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.704,
+      "loop_ms": 58.0,
+      "infer_ms": 40.8,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.765,
+      "loop_ms": 60.0,
+      "infer_ms": 43.22,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.826,
+      "loop_ms": 60.0,
+      "infer_ms": 43.2,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.884,
+      "loop_ms": 58.0,
+      "infer_ms": 41.0,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 4.942,
+      "loop_ms": 58.0,
+      "infer_ms": 40.91,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.002,
+      "loop_ms": 60.0,
+      "infer_ms": 43.26,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.065,
+      "loop_ms": 62.0,
+      "infer_ms": 45.21,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.126,
+      "loop_ms": 60.0,
+      "infer_ms": 43.54,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.184,
+      "loop_ms": 58.0,
+      "infer_ms": 41.31,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.243,
+      "loop_ms": 58.0,
+      "infer_ms": 41.66,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.302,
+      "loop_ms": 59.0,
+      "infer_ms": 41.7,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.365,
+      "loop_ms": 63.0,
+      "infer_ms": 45.84,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.425,
+      "loop_ms": 60.0,
+      "infer_ms": 43.22,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.486,
+      "loop_ms": 61.0,
+      "infer_ms": 43.79,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.548,
+      "loop_ms": 62.0,
+      "infer_ms": 44.19,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.61,
+      "loop_ms": 62.0,
+      "infer_ms": 44.07,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.674,
+      "loop_ms": 64.0,
+      "infer_ms": 45.48,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.738,
+      "loop_ms": 63.0,
+      "infer_ms": 45.31,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.805,
+      "loop_ms": 66.0,
+      "infer_ms": 49.38,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.87,
+      "loop_ms": 65.0,
+      "infer_ms": 47.86,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 5.937,
+      "loop_ms": 67.0,
+      "infer_ms": 49.33,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.004,
+      "loop_ms": 67.0,
+      "infer_ms": 48.9,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.07,
+      "loop_ms": 66.0,
+      "infer_ms": 48.12,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.136,
+      "loop_ms": 66.0,
+      "infer_ms": 48.5,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.204,
+      "loop_ms": 68.0,
+      "infer_ms": 50.66,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.271,
+      "loop_ms": 65.0,
+      "infer_ms": 48.5,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.336,
+      "loop_ms": 65.0,
+      "infer_ms": 47.72,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.402,
+      "loop_ms": 66.0,
+      "infer_ms": 48.24,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.468,
+      "loop_ms": 66.0,
+      "infer_ms": 48.42,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.534,
+      "loop_ms": 66.0,
+      "infer_ms": 48.7,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.602,
+      "loop_ms": 66.0,
+      "infer_ms": 49.42,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.668,
+      "loop_ms": 66.0,
+      "infer_ms": 48.77,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    },
+    {
+      "t": 6.734,
+      "loop_ms": 66.0,
+      "infer_ms": 48.2,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": 0
+    }
+  ]
+}

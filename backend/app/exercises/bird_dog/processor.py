@@ -1,4 +1,8 @@
-# 버드독 운동 DTW 프로세서 및 DTW 엔진
+# 버드독 운동 DTW 프로세서 및 DTW 엔진.
+# 카메라 프레임마다 관절 feature를 받아 기준 동작과 실시간 비교(DTW)하고,
+# 반복 횟수(rep)를 카운트하며 피드백을 생성한다.
+# BirdDogDTWProcessor: 프레임 단위로 동작을 처리하는 메인 프로세서.
+# BirdDogDTW: DTW 알고리즘으로 사용자 동작과 기준 동작을 수치 비교하는 엔진.
 import time
 import logging
 import numpy as np
@@ -13,7 +17,13 @@ from app.services.feedback.session_feedback_summary import SessionFeedbackSummar
 logger = logging.getLogger(__name__)
 
 
+# 버드독 운동의 프레임별 처리를 담당하는 프로세서 클래스.
+# 매 프레임마다 관절 좌표를 받아 feature를 추출하고, 실시간 DTW 유사도를 계산하며,
+# 동작 신호를 감지해 rep 완료를 판단한다. 세션이 끝나면 전체 요약 피드백을 생성한다.
 class BirdDogDTWProcessor(BaseProcessor):
+    # DTW 엔진과 목표 반복 횟수를 받아 프로세서를 초기화한다.
+    # dtw_engine: BirdDogDTW 인스턴스
+    # target_reps: 목표 반복 횟수 (기본값 3회)
     def __init__(self, dtw_engine, target_reps: int = 3):
         self.dtw_engine = dtw_engine
         self.buffer = []
@@ -43,9 +53,14 @@ class BirdDogDTWProcessor(BaseProcessor):
         )
         self.pending_rep_compares: list[tuple[Future, Dict[str, Any]]] = []
 
+    # YOLO 관절 좌표를 받아 버드독 feature 벡터를 추출해 반환한다.
+    # pts: YOLO 관절 좌표 딕셔너리
     def extract_mp_features(self, pts):
         return get_bird_dog_features_yolo(pts)
 
+    # feature 벡터에서 동작 강도를 나타내는 단일 신호값을 계산한다.
+    # feat: feature 리스트 (index 2~5가 팔/다리 각도)
+    # 반환: 오른팔-왼다리 합 또는 왼팔-오른다리 합 중 더 큰 값
     def _get_signal(self, feat):
         right_arm = feat[2]
         left_leg = feat[3]
@@ -53,6 +68,12 @@ class BirdDogDTWProcessor(BaseProcessor):
         right_leg = feat[5]
         return max(right_arm + left_leg, left_arm + right_leg)
 
+    # 매 프레임마다 호출되는 메인 처리 함수.
+    # 관절 좌표와 feature를 받아 실시간 유사도 계산, rep 카운트, 피드백 생성을 수행한다.
+    # keypoints: 관절 좌표 딕셔너리
+    # frame: 현재 카메라 프레임 이미지
+    # mp_features: 미리 추출된 feature 벡터 (없으면 None)
+    # 반환: 현재 상태, 피드백, 유사도 등을 담은 딕셔너리
     def process(self, keypoints, frame, depth_frame=None, intrinsics=None, mp_features=None):
         pending_result = self._poll_pending_rep_compare()
         if pending_result is not None:
@@ -246,6 +267,9 @@ class BirdDogDTWProcessor(BaseProcessor):
         self.csv_logger.log(result)
         return result
 
+    # 백그라운드에서 처리 중인 rep DTW 비교 결과를 확인해 완료된 것을 반환한다.
+    # 비교가 아직 진행 중이면 None을 반환하고, 완료되면 rep 결과 딕셔너리를 반환한다.
+    # 목표 횟수를 채우면 세션 요약 정보도 함께 포함해 반환한다.
     def _poll_pending_rep_compare(self) -> Dict[str, Any] | None:
         if not self.pending_rep_compares:
             return None
@@ -282,6 +306,9 @@ class BirdDogDTWProcessor(BaseProcessor):
         return result
 
 
+# 버드독 운동의 DTW 비교 엔진 클래스.
+# 미리 저장된 기준 동작(레퍼런스 시퀀스)과 사용자 동작을 DTW 알고리즘으로 비교해
+# 유사도 점수와 관절별 오차를 계산한다. 좌우 방향 자동 대칭 처리도 지원한다.
 class BirdDogDTW(BaseDTW):
     FEATURE_NAMES = (
         "trunk",
@@ -304,17 +331,26 @@ class BirdDogDTW(BaseDTW):
     FEATURE_WEIGHTS = (0.8, 0.8, 1.3, 1.3, 1.3, 1.3, 1.1, 1.1, 1.1, 1.1, 1.3, 1.3, 1.3, 1.3)
     MIN_BAND = 4
 
+    # 기준 동작 파일 경로를 받아 DTW 엔진을 초기화한다.
+    # ref_path: 기준 동작 feature 시퀀스가 저장된 파일 경로 (CSV 또는 npy)
     def __init__(self, ref_path: str):
         self.ref_seq = self._load_reference(ref_path)
         self.feat_min, self.feat_max = self._get_minmax(self.ref_seq)
         self.ref_norm = self._normalize(self.ref_seq)
         self.ref_signal = self._motion_signal(self.ref_seq)
 
+    # feature 시퀀스에서 각 프레임의 팔/다리 동작 강도 신호를 계산한다.
+    # seq: feature 시퀀스 배열 (N x 14)
+    # 반환: 각 프레임의 동작 강도를 나타내는 1차원 배열
     def _motion_signal(self, seq: np.ndarray):
         if len(seq) == 0:
             return np.array([], dtype=np.float32)
         return np.maximum(seq[:, 2] + seq[:, 3], seq[:, 4] + seq[:, 5])
 
+    # 최근 사용자 시퀀스를 분석해 현재 동작 단계(올리는 중, 정점, 내리는 중 등)와
+    # 어느 쌍(오른팔-왼다리 또는 왼팔-오른다리)을 사용 중인지 판단한다.
+    # user_seq: 사용자 feature 시퀀스 배열
+    # 반환: (phase 문자열, direction 문자열) 튜플
     def _estimate_phase(self, user_seq: np.ndarray):
         signal = self._motion_signal(user_seq)
         if len(signal) == 0:
@@ -349,6 +385,10 @@ class BirdDogDTW(BaseDTW):
             direction = "pair_a" if active_a > active_b else "pair_b"
         return phase, direction
 
+    # 현재 동작 단계와 기준 동작 진행도에 따라 유사도 페널티 값을 반환한다.
+    # phase: 현재 동작 단계 문자열 ("peak", "raising", "lowering", "ready" 등)
+    # ref_progress: 기준 동작에서의 현재 진행 비율 (0.0~1.0)
+    # 반환: 페널티 값 (0.0이면 페널티 없음)
     def _phase_penalty(self, phase: str, ref_progress: float):
         if phase == "peak":
             return 0.0 if ref_progress >= 0.70 else 0.12
@@ -360,6 +400,10 @@ class BirdDogDTW(BaseDTW):
             return 0.08 if ref_progress > 0.30 else 0.0
         return 0.0
 
+    # feature 시퀀스의 팔/다리 좌우를 반전시킨 복사본을 반환한다.
+    # 좌우 반전은 "오른팔-왼다리" 패턴과 "왼팔-오른다리" 패턴 중 더 유사한 것을 선택하기 위해 사용된다.
+    # seq: 원본 feature 시퀀스 배열
+    # 반환: 좌우가 교환된 feature 시퀀스 배열
     def _flip_left_right(self, seq: np.ndarray):
         flipped = seq.copy()
         flipped[:, 2], flipped[:, 4] = seq[:, 4], seq[:, 2]
@@ -370,6 +414,11 @@ class BirdDogDTW(BaseDTW):
         flipped[:, 12], flipped[:, 13] = seq[:, 13], seq[:, 12]
         return flipped
 
+    # DTW 경로를 따라 각 프레임별 오차를 누적해 feature별 평균 오차와 비용을 계산한다.
+    # ref_seq: 정규화된 기준 동작 시퀀스
+    # user_seq: 정규화된 사용자 동작 시퀀스
+    # path: DTW 정렬 경로 (기준 인덱스, 사용자 인덱스) 쌍의 리스트
+    # 반환: 관절별 오차, 동작/자세 비용, 주요 오차 항목, 진행도 등을 담은 딕셔너리
     def _compute_path_metrics(self, ref_seq: np.ndarray, user_seq: np.ndarray, path):
         feature_sums = np.zeros(len(self.FEATURE_NAMES), dtype=np.float32)
         motion_sum = 0.0
@@ -402,6 +451,11 @@ class BirdDogDTW(BaseDTW):
             "pair_b_error": pair_b_error,
         }
 
+    # 동작 중 실시간으로 현재까지의 시퀀스와 기준 동작을 DTW로 비교해 유사도를 반환한다.
+    # partial_user_seq: 현재까지 수집된 사용자 feature 시퀀스
+    # min_frames: 비교를 시작하기 위한 최소 프레임 수
+    # live_window: 가장 최근 몇 프레임을 슬라이딩 윈도우로 사용할지
+    # 반환: 실시간 유사도, 동작/자세 유사도, 관절별 오차, 동작 단계 등을 담은 딕셔너리
     def get_live_similarity(
         self,
         partial_user_seq,
@@ -490,6 +544,9 @@ class BirdDogDTW(BaseDTW):
             },
         }
 
+    # 한 rep이 완료된 후 전체 사용자 시퀀스와 기준 동작을 DTW로 전체 비교해 최종 점수를 반환한다.
+    # user_seq: 한 rep 동안 수집된 전체 사용자 feature 시퀀스
+    # 반환: 최종 점수, 동작/자세 유사도, 관절별 오차 등을 담은 딕셔너리
     def compare(self, user_seq):
         user_seq = np.array(user_seq, dtype=np.float32)
         user = self._normalize(user_seq)

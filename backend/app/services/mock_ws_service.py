@@ -1,3 +1,7 @@
+# 카메라나 AI 모델 없이 프론트엔드 동작을 테스트하기 위한 가짜(Mock) WebSocket 서비스 모듈.
+# 실제 운동 측정 흐름과 코칭 흐름을 흉내 내는 미리 정해진 데이터를 순서대로 전송합니다.
+# 개발 초기 단계에서 하드웨어 없이 화면 전환 로직을 검증할 때 사용합니다.
+
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
 from app.services.score_service import (
@@ -9,6 +13,9 @@ from app.services.score_service import (
 )
 
 
+# 카메라/모델 없이 가상 측정 데이터를 WebSocket으로 스트리밍합니다.
+# 준비 → 측정 → 유지 → 완료 순서로 미리 정해진 시나리오를 재생합니다.
+# 매개변수: websocket - 연결된 WebSocket 객체 / parts - 측정할 신체 부위 문자열 (없으면 기본 어깨)
 async def run_mock_measure_flow(websocket: WebSocket, parts: str | None = None):
     """
     모델/카메라가 없는 개발 단계용 Mock 측정 스트림.
@@ -123,6 +130,9 @@ async def run_mock_measure_flow(websocket: WebSocket, parts: str | None = None):
         return
 
 
+# 카메라/모델 없이 가상 코칭 데이터를 WebSocket으로 스트리밍합니다.
+# 각도가 목표치에 점차 가까워지는 시나리오로 코칭 화면의 동작을 검증합니다.
+# 매개변수: websocket - 연결된 WebSocket 객체 / exercise - 운동 종류 문자열 / limit - 목표 각도
 async def run_mock_coach_flow(websocket: WebSocket, exercise: str, limit: int):
     """
     모델/카메라가 없는 개발 단계용 Mock 코칭 스트림.

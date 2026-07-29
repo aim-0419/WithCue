@@ -1,0 +1,9 @@
+{
+  "rom": {
+    "seated_knee_extension_left_max": 175,
+    "seated_knee_extension_right_max": 178,
+    "straight_leg_raise_left_max": 172,
+    "straight_leg_raise_right_max": 75
+  },
+  "measured_at": "2026-07-03T09:47:32"
+}

@@ -1,3 +1,6 @@
+# 버드독 운동의 자세 비교 결과를 분석해 사용자에게 전달할 피드백 목록을 생성하는 모듈.
+# DTW 비교 결과(유사도, 관절별 오차 등)를 읽어 "팔 뻗기 부족", "몸통 흔들림" 등
+# 구체적인 문제 항목(issue)을 만들어 반환한다. 심각도(severity)가 높을수록 더 먼저 표시된다.
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -11,6 +14,9 @@ from app.exercises.shared.common import (
 )
 
 
+# 버드독 DTW 비교 결과를 분석해 자세 문제 항목 리스트를 반환한다.
+# compare_result: DTW 엔진이 반환한 딕셔너리 (유사도, 관절별 오차, 방향 정보 등 포함)
+# 반환: 감지된 문제 항목(issue) 딕셔너리의 리스트. 문제가 없으면 빈 리스트.
 def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any]]:
     issues: List[Dict[str, Any]] = []
     motion_similarity = compare_result.get("motion_similarity")
@@ -20,6 +26,7 @@ def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any
     movement_direction = str(compare_result.get("movement_direction", "balanced"))
     leaders = top_features(compare_result, limit=4)
 
+    # 팔/다리 가동범위(ROM) 부족 여부 확인
     motion_group_error = max(
         pair_a_error,
         pair_b_error,
@@ -46,6 +53,7 @@ def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any
             )
         )
 
+    # 오른팔-왼다리 쌍과 왼팔-오른다리 쌍의 동작 균형 확인
     pair_delta = abs(pair_a_error - pair_b_error)
     if pair_delta > 0.08:
         weaker_pair = "오른팔-왼다리" if pair_a_error > pair_b_error else "왼팔-오른다리"
@@ -61,6 +69,7 @@ def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any
             )
         )
 
+    # 몸통/골반 흔들림 여부 확인
     trunk_error = feature_error(compare_result, "trunk")
     pelvic_error = feature_error(compare_result, "pelvic")
     if max(trunk_error, pelvic_error) > 0.15 and any(name in leaders[:3] for name in ("trunk", "pelvic")):
@@ -79,12 +88,14 @@ def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any
             )
         )
 
+    # 팔꿈치 굽힘 및 팔 수평 정렬 오차 확인
     arm_joint_error = max(
         feature_error(compare_result, "right_elbow_angle"),
         feature_error(compare_result, "left_elbow_angle"),
         feature_error(compare_result, "right_arm_h_err"),
         feature_error(compare_result, "left_arm_h_err"),
     )
+    # 무릎 굽힘 및 다리 수평 정렬 오차 확인
     leg_joint_error = max(
         feature_error(compare_result, "left_knee_angle"),
         feature_error(compare_result, "right_knee_angle"),
@@ -117,6 +128,7 @@ def extract_birddog_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any
             )
         )
 
+    # 다른 문제가 없는데 전체 자세 유사도가 낮을 경우 일반 자세 피드백 추가
     if posture_similarity is not None and float(posture_similarity) < 80.0 and not issues:
         severity = clamp01((80.0 - float(posture_similarity)) / 30.0)
         issues.append(

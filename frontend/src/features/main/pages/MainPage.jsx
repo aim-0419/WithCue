@@ -75,7 +75,7 @@ export default function MainPage() {
   return (
     <>
     <TopBar/>
-    <div className="h-dvh bg-slate-950">
+    <div className="h-full bg-slate-950">
       <Main
         onStartWorkout={() => navigate("/choose-exercise")}
         onStartCheck={() => navigate("/check/select")}

@@ -1,16 +1,51 @@
 @import "tailwindcss";
 
-:root, body, #root {
+:root,
+body,
+#root {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", Arial, sans-serif;
 }
-html, body, #root {
+
+html {
+  font-size: clamp(16px, 1.481vmin, 24px);
+  /* 1rem = 16px @ vmin 1080, 최소 14px 보장 */
+}
+
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
 }
 
 body {
   overflow-x: hidden;
+  background:
+    radial-gradient(1200px 800px at 60% 10%, rgba(59,130,246,0.18), transparent 55%),
+    radial-gradient(900px 700px at 40% 40%, rgba(99,102,241,0.14), transparent 60%),
+    #020617;
 }
+
+@media (orientation: portrait) {
+  html {
+    height: 100dvh;
+  }
+  body {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding-top: 15dvh;
+    box-sizing: border-box;
+  }
+  #root {
+    height: 50dvh;
+    max-height: 50dvh;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+}
+
 
 .hide-scrollbar {
   scrollbar-width: none;
@@ -21,10 +56,12 @@ body {
   width: 0;
   height: 0;
 }
-.exit-btn{
+
+.exit-btn {
   padding: 14px 22px;
   border-radius: 999px;
-  background: rgba(239, 68, 68, 0.92);   /* red-500 */
+  background: rgba(239, 68, 68, 0.92);
+  /* red-500 */
   color: #fff;
   font-weight: 900;
   font-size: 15px;
@@ -32,18 +69,19 @@ body {
   border: none;
   box-shadow:
     0 8px 20px rgba(239, 68, 68, 0.35),
-    inset 0 0 0 1px rgba(255,255,255,0.25);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25);
   cursor: pointer;
 }
 
-.exit-btn:hover{
-  background: rgba(220, 38, 38, 0.95);   /* red-600 */
+.exit-btn:hover {
+  background: rgba(220, 38, 38, 0.95);
+  /* red-600 */
   transform: translateY(-1px);
 }
 
-.exit-btn:active{
+.exit-btn:active {
   transform: translateY(0);
   box-shadow:
     0 4px 12px rgba(239, 68, 68, 0.35),
-    inset 0 0 0 1px rgba(255,255,255,0.25);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }

@@ -1,0 +1,165 @@
+{
+  "exercise": "check_full",
+  "conn_id": 281471169509264,
+  "session_start": "2026-07-29T11:37:41",
+  "duration_sec": 1.4,
+  "frame_count": 17,
+  "fps_actual": 11.47,
+  "latency_ms": {
+    "loop": {
+      "count": 17,
+      "min": 64.0,
+      "max": 1566.0,
+      "mean": 173.76,
+      "p50": 83.0,
+      "p95": 113.0
+    },
+    "infer": {
+      "count": 17,
+      "min": 47.07,
+      "max": 92.4,
+      "mean": 68.18,
+      "p50": 64.53,
+      "p95": 89.58
+    }
+  },
+  "similarity": null,
+  "frames": [
+    {
+      "t": 0.0,
+      "loop_ms": 1566.0,
+      "infer_ms": 82.34,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.113,
+      "loop_ms": 113.0,
+      "infer_ms": 92.4,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.221,
+      "loop_ms": 108.0,
+      "infer_ms": 89.58,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.286,
+      "loop_ms": 64.0,
+      "infer_ms": 47.07,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.376,
+      "loop_ms": 90.0,
+      "infer_ms": 70.0,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.454,
+      "loop_ms": 78.0,
+      "infer_ms": 59.53,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.548,
+      "loop_ms": 93.0,
+      "infer_ms": 73.48,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.628,
+      "loop_ms": 80.0,
+      "infer_ms": 61.51,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.698,
+      "loop_ms": 69.0,
+      "infer_ms": 51.83,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.782,
+      "loop_ms": 83.0,
+      "infer_ms": 65.88,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.859,
+      "loop_ms": 76.0,
+      "infer_ms": 58.15,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 0.941,
+      "loop_ms": 81.0,
+      "infer_ms": 63.14,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 1.019,
+      "loop_ms": 78.0,
+      "infer_ms": 58.78,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 1.107,
+      "loop_ms": 86.0,
+      "infer_ms": 64.53,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 1.209,
+      "loop_ms": 102.0,
+      "infer_ms": 74.61,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 1.287,
+      "loop_ms": 79.0,
+      "infer_ms": 59.51,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    },
+    {
+      "t": 1.395,
+      "loop_ms": 108.0,
+      "infer_ms": 86.75,
+      "similarity": null,
+      "accuracy_pct": null,
+      "rep": null
+    }
+  ]
+}

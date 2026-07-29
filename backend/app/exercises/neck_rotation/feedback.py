@@ -1,3 +1,6 @@
+# 목 회전 운동의 자세 문제를 감지하고 피드백 메시지를 생성하는 모듈.
+# DTW 비교 결과를 받아 목 회전 범위·몸통 보상·어깨 보상·고개 기울기 등
+# 잘못된 패턴을 판별하고, 각 문제에 맞는 즉각 피드백 문구와 심각도를 반환한다.
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -12,6 +15,10 @@ from app.exercises.shared.common import (
 )
 
 
+# DTW 비교 결과를 분석해 목 회전 운동의 자세 문제 목록을 반환한다.
+# compare_result: DTW 엔진이 계산한 유사도·특징 오차·동작 단계 등을 담은 딕셔너리.
+# 반환값: 감지된 문제(error_type, body_part, severity, instant_feedback 등)를 담은 딕셔너리 리스트.
+#         문제가 없으면 빈 리스트를 반환한다.
 def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[str, Any]]:
     issues: List[Dict[str, Any]] = []
     motion_similarity = compare_result.get("motion_similarity")
@@ -24,6 +31,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
     shoulder_error = feature_error(compare_result, "shoulder_line_angle")
     head_tilt_error = feature_error(compare_result, "head_tilt")
 
+    # 목 회전 범위가 기준보다 작을 때 (회전 동작 중 neck_turn_angle 오차가 클 경우)
     if (
         phase_is(compare_result, {"turning_left", "turning_right", "peak", "transition"})
         and neck_turn_error > 0.16
@@ -44,6 +52,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
             )
         )
 
+    # 목만 돌려야 하는데 몸통이 함께 회전할 때
     if trunk_error > 0.15 and "trunk_rotation" in leaders[:2]:
         severity = max(
             clamp01((trunk_error - 0.15) / 0.7),
@@ -60,6 +69,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
             )
         )
 
+    # 어깨가 함께 돌아가는 보상 동작이 감지될 때
     if shoulder_error > 0.15 and "shoulder_line_angle" in leaders[:2]:
         severity = max(
             clamp01((shoulder_error - 0.15) / 0.7),
@@ -76,6 +86,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
             )
         )
 
+    # 고개가 옆으로 기울어지는 보상 동작이 감지될 때
     if head_tilt_error > 0.16 and "head_tilt" in leaders[:2]:
         severity = clamp01((head_tilt_error - 0.16) / 0.75)
         issues.append(
@@ -89,6 +100,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
             )
         )
 
+    # 정면으로 돌아올 때 목 정렬이 맞지 않을 때
     if phase == "center" and neck_turn_error > 0.14 and "neck_turn_angle" in leaders:
         severity = clamp01((neck_turn_error - 0.14) / 0.6)
         issues.append(
@@ -102,6 +114,7 @@ def extract_neck_rotation_issues(compare_result: Dict[str, Any]) -> List[Dict[st
             )
         )
 
+    # 개별 문제가 없지만 전반적인 자세 유사도가 낮을 때
     if posture_similarity is not None and float(posture_similarity) < 80.0 and not issues:
         severity = clamp01((80.0 - float(posture_similarity)) / 30.0)
         issues.append(

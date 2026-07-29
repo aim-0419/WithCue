@@ -2,13 +2,17 @@
 // 현재 가동범위/상태 측정
 
 import { useEffect, useRef, useState } from "react";
-import SideBySideStage from "../../../components/layout/SideBySideStage";
 import WsCamera from "../../../components/camera/WsCamera";
+import TopBar from "../../../components/layout/TopBar";
 import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { CheckResultView } from "../results/CheckResultPage";
 import { getWsBase } from "../../../services/runtimeConfig";
 import { saveAccuracyHistory } from "../../../utils/accuracyHistory";
 import { saveAccuracyToServer } from "../../../services/accuracyApi";
+import { saveRomData } from "../../../utils/romStorage";
+import { getAccessToken } from "../../../utils/authStorage";
+import { getScript, playScript } from "../../../utils/checkAudioScript";
+import { isMirrorMode } from "../../../utils/mirrorMode";
 
 export default function CheckPage() {
   const navigate = useNavigate();
@@ -17,56 +21,49 @@ export default function CheckPage() {
   const [sp] = useSearchParams();
   const selectedPart =
     sp.get("part") ?? location.state?.selectedPart;  // "knee" | "hip" | "shoulder" | null
+  const isMirror = isMirrorMode();
   const [progress, setProgress] = useState("");
   const [stage, setStage] = useState("");
   const [status, setStatus] = useState("");
+  const [audioLabel, setAudioLabel] = useState("");
   const [finished, setFinished] = useState(false);
   const [finalAccuracy, setFinalAccuracy] = useState(100);
   const [completedAt, setCompletedAt] = useState(null);
-  const statusAudioRef = useRef(null);
-  const lastStatusRef = useRef("");
-  const audioReadyRef = useRef(false);
-
-  const STATUS_AUDIO_MAP = {
-    ready: "/audio/check_neck_ready.mp3",
-    left_hold: "/audio/check_neck_left_hold.mp3",
-    center_return: "/audio/check_neck_center_return.mp3",
-    right_hold: "/audio/check_neck_right_hold.mp3",
-    finished: "/audio/check_neck_done.mp3",
-  };
+  const wsCameraRef = useRef(null);
+  const audioAbortRef = useRef(null);
+  const audioStartedRef = useRef(false);
 
   const WS_BASE = getWsBase();
-  
-  const wsUrl = selectedPart
-    ? `${WS_BASE}/api/v1/ws/measure?parts=${encodeURIComponent(selectedPart)}`
-    : `${WS_BASE}/api/v1/ws/measure`;
 
+  // 서버가 측정 결과를 사용자에 매핑할 수 있도록 access token을 쿼리로 전달한다.
+  const _token = getAccessToken();
+  const _tokenQ = _token ? `token=${encodeURIComponent(_token)}` : "";
+  const wsUrl = selectedPart
+    ? `${WS_BASE}/api/v1/ws/measure?parts=${encodeURIComponent(selectedPart)}${_tokenQ ? `&${_tokenQ}` : ""}`
+    : `${WS_BASE}/api/v1/ws/measure${_tokenQ ? `?${_tokenQ}` : ""}`;
+
+  // 컴포넌트 언마운트 시 오디오 중단
   useEffect(() => {
-    audioReadyRef.current = true;
-    return () => {
-      audioReadyRef.current = false;
-      if (statusAudioRef.current) {
-        statusAudioRef.current.pause();
-        statusAudioRef.current.currentTime = 0;
-        statusAudioRef.current = null;
-      }
-    };
+    return () => audioAbortRef.current?.abort();
   }, []);
 
-  function playStatusAudio(nextStatus) {
-    const src = STATUS_AUDIO_MAP[nextStatus];
-    if (!src || !audioReadyRef.current) return;
-    if (lastStatusRef.current === nextStatus) return;
-    lastStatusRef.current = nextStatus;
-    try {
-      if (statusAudioRef.current) {
-        statusAudioRef.current.pause();
-        statusAudioRef.current.currentTime = 0;
+  // 첫 프레임 수신 후 1초 뒤 오디오 시작
+  function startAudioOnce() {
+    if (audioStartedRef.current) return;
+    audioStartedRef.current = true;
+    const controller = new AbortController();
+    audioAbortRef.current = controller;
+    setTimeout(async () => {
+      const script = getScript(selectedPart);
+      await playScript(script, {
+        onPhase: (phase) => wsCameraRef.current?.sendPhase(phase),
+        onStep: (label) => setAudioLabel(label),
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) {
+        wsCameraRef.current?.sendPhase("DONE");
       }
-      const audio = new Audio(src);
-      statusAudioRef.current = audio;
-      audio.play().catch(() => {});
-    } catch {}
+    }, 1000);
   }
 
   async function persistAccuracy() {
@@ -107,7 +104,6 @@ export default function CheckPage() {
           setStatus("");
           setFinalAccuracy(100);
           setCompletedAt(null);
-          lastStatusRef.current = "";
         }}
         />
     );
@@ -115,54 +111,92 @@ export default function CheckPage() {
 
   //측정 화면
   return (
-    <SideBySideStage
-      single
-      topSlot={null}
-      bottomRightSlot={
+    <div style={{ position: "relative", width: "100%", height: "100%", background: "#0b1220", overflow: "hidden" }}>
+      <TopBar />
+
+      {/* 좌상단: 현재 재생 중인 안내 문구 */}
+      {audioLabel && (
+        <div
+          style={{
+            position: "absolute",
+            top: 72,
+            left: 20,
+            zIndex: 20,
+            background: "rgba(0,0,0,0.7)",
+            color: "#fff",
+            padding: "10px 16px",
+            borderRadius: 10,
+            fontSize: 18,
+            fontWeight: 800,
+            letterSpacing: "0.03em",
+            maxWidth: "60%",
+            lineHeight: 1.4,
+          }}
+        >
+          {audioLabel}
+        </div>
+      )}
+
+      {/* 우상단: 진행 단계 */}
+      {(stage || progress) && (
+        <div
+          style={{
+            position: "absolute",
+            top: 72,
+            right: 20,
+            zIndex: 20,
+            background: "rgba(0,0,0,0.6)",
+            color: "#fff",
+            padding: "10px 16px",
+            borderRadius: 10,
+            fontSize: 16,
+            fontWeight: 700,
+            textAlign: "right",
+          }}
+        >
+          {stage && <div>{stage}</div>}
+          {progress && <div style={{ opacity: 0.7, fontSize: 13 }}>{progress}</div>}
+        </div>
+      )}
+
+      {/* 우하단: 종료 버튼 */}
+      <div style={{ position: "absolute", right: 20, bottom: 20, zIndex: 30 }}>
         <button
           className="exit-btn"
           onClick={() => {
+            audioAbortRef.current?.abort();
             setCompletedAt(new Date().toISOString());
             setFinished(true);
           }}
         >
           종료
         </button>
-      }
-      rightTitle="내 화면"
-      rightSub="실시간 카메라"
-      rightContent={
-        <div className="relative w-full h-full">
-          {status ? (
-            <div className="absolute left-3 top-3 z-20 rounded-2xl bg-black/70 border border-white/10 px-4 py-2 text-white text-lg font-black tracking-wide">
-              {status}
-            </div>
-          ) : null}
-          <WsCamera
-            wsUrl={wsUrl}
-            enabled={!finished}
-            onState={(data) => {
-              if (data.progress) setProgress(data.progress);
-              if (data.stage) setStage(data.stage);
-              if (data.status) {
-                setStatus(data.status);
-                playStatusAudio(data.status);
-              } else {
-                setStatus("waiting");
-              }
-              // [조현석] 측정 도중 들어오는 accuracy_pct 중 가장 마지막 값을 최종 정확도로 사용합니다.
-              if (typeof data.accuracy_pct === "number") setFinalAccuracy(data.accuracy_pct);
-            }}
-            onResult={(data) => {
-              if (data.status === "finished") {
-                playStatusAudio("finished");
-                setCompletedAt(new Date().toISOString());
-                setFinished(true);
-              }
-            }}
-          />
-        </div>
-      }
-    />
+      </div>
+
+      {/* 미러 모드가 아닐 때는 카메라 피드 표시, 미러 모드일 때는 WebSocket 연결만 유지 */}
+      <div style={isMirror ? { display: "none" } : { position: "absolute", inset: 0, zIndex: 0 }}>
+        <WsCamera
+          ref={wsCameraRef}
+          wsUrl={wsUrl}
+          showFrame={!isMirror}
+          enabled={!finished}
+          onState={(data) => {
+            startAudioOnce();
+            if (data.progress) setProgress(data.progress);
+            if (data.stage) setStage(data.stage);
+            if (data.status) setStatus(data.status);
+            else setStatus("waiting");
+            if (typeof data.accuracy_pct === "number") setFinalAccuracy(data.accuracy_pct);
+          }}
+          onResult={(data) => {
+            if (data.status === "finished") {
+              if (data.rom) saveRomData(data.rom);
+              setCompletedAt(new Date().toISOString());
+              setFinished(true);
+            }
+          }}
+        />
+      </div>
+    </div>
   );
 }

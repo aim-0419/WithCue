@@ -31,6 +31,45 @@ async def _send_model_unavailable(websocket: WebSocket, *, mode: str, message: s
     )
     await websocket.close(code=1011, reason="model_unavailable")
 
+
+# WS 쿼리로 전달된 access token을 검증해 user_id를 반환한다.
+# 브라우저 WebSocket은 Authorization 헤더를 못 실으므로 token은 쿼리로 받는다.
+# 토큰이 없거나 무효하면 None(비로그인 세션)을 반환한다.
+def _resolve_ws_user_id(token: Optional[str]) -> Optional[int]:
+    if not token:
+        return None
+    try:
+        from app.services.auth_service import AuthService
+        return AuthService.verify_access_token(token)
+    except Exception:
+        return None
+
+
+# 로그인(유효 토큰) 없이는 세션을 시작하지 않는다.
+# 프론트가 사유를 표시하고 재연결을 멈출 수 있도록 메시지 후 전용 코드(4401)로 종료한다.
+async def _reject_unauthorized(websocket: WebSocket, *, mode: str):
+    await websocket.accept()
+    try:
+        await websocket.send_json(
+            {
+                "type": "frame",
+                "jpeg_b64": None,
+                "data": {
+                    "mode": mode,
+                    "status": "unauthorized",
+                    "message": "로그인이 필요합니다.",
+                    "feedback": "로그인이 필요합니다.",
+                    "keypoints": {},
+                    "frame_w": 1280,
+                    "frame_h": 720,
+                },
+            }
+        )
+    except Exception:
+        pass
+    await websocket.close(code=4401, reason="unauthorized")
+
+
 @router.get("/exercises")
 def get_exercise_catalog():
     # 조현석API통신테스트: 프론트 운동 선택 화면과 백엔드 목록 API 연동 지점
@@ -43,14 +82,21 @@ def get_exercise_catalog():
 # -----------------------------------------------------------
 @router.websocket("/ws/measure")
 async def measure_endpoint(
-    websocket: WebSocket, 
-    parts: Optional[str] = Query(None)
+    websocket: WebSocket,
+    parts: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
 ):
+    user_id = _resolve_ws_user_id(token)
     # 조현석API통신테스트: 프론트 측정 모드 WebSocket 연동 지점
     # [임시 테스트 모드] 모델/카메라 없이 프론트 WS 통신부터 확인할 때 사용
     # .env의 MOCK_PIPELINE_MODE=true 이면 아래 mock 경로로 진입합니다.
     if settings.mock_pipeline_mode:
         await run_mock_measure_flow(websocket, parts=parts)
+        return
+
+    # 로그인 필수: 유효 토큰이 없으면 세션 거부
+    if user_id is None:
+        await _reject_unauthorized(websocket, mode="MEASURE")
         return
 
     yolo_model = getattr(websocket.app.state, "yolo_model", None)
@@ -67,11 +113,12 @@ async def measure_endpoint(
     # [실제 운영 모드] 실시간 측정 WS 진입점: 라우터는 입력 파싱만 하고 로직은 서비스/프로세서로 위임
     # [중요] mock 모드에서는 필요 없는 무거운 모듈을 지연 import로 분리
     from app.services.motion_service import MotionService
-    from app.exercises.shared.measurement import MeasurementProcessor
+    from app.exercises.shared.measurement import MeasurementProcessor, FullBodyMeasurementProcessor
     from app.exercises.neck_rotation.measurement import NeckROMMeasurementProcessor
+    from app.exercises.straight_leg_raise.measurement import KneeROMMeasurementProcessor
     # 1. 연결 서비스 생성
-    service = MotionService(websocket, yolo_model)
-    
+    service = MotionService(websocket, yolo_model, user_id=user_id, exercise_code=f"check_{parts or 'full'}")
+
     # 2. 쿼리(parts=...)를 내부 측정 스케줄로 변환
     # 유효한 값이 없으면 None -> MeasurementProcessor 기본 스케줄 사용
     target_list = parse_measure_schedule(parts)
@@ -79,6 +126,12 @@ async def measure_endpoint(
     # 3. 프로세서에 '할 일 목록' 전달
     if target_list == ["neck"] or parts == "neck":
         processor = NeckROMMeasurementProcessor()
+    elif parts in ("knee", "knee_left", "knee_right"):
+        # 무릎은 좌/우 어느 쪽을 눌러도 앉기→양다리 펴기→일어서기 전체 플로우를 실행한다.
+        processor = KneeROMMeasurementProcessor()
+    elif not parts:
+        # 전체(전신) 정밀 검사: 어깨 → 목 → 무릎 순서로 통합 측정
+        processor = FullBodyMeasurementProcessor()
     else:
         processor = MeasurementProcessor(target_schedule=target_list)
 
@@ -90,13 +143,20 @@ async def coach_endpoint(
     websocket: WebSocket,
     exercise: str,
     limit: Optional[int] = Query(None, ge=1, le=180),
+    token: Optional[str] = Query(None),
 ):
+    user_id = _resolve_ws_user_id(token)
     # 조현석API통신테스트: 프론트 코칭 모드 WebSocket 연동 지점
     # [임시 테스트 모드] 모델/카메라 없이 코칭 WS 통신 확인
     # mock 모드에서는 exercise, limit만 echo 하며 프론트 실시간 렌더링 동작을 검증합니다.
     if settings.mock_pipeline_mode:
         target_limit = resolve_limit(exercise, limit)
         await run_mock_coach_flow(websocket, exercise=exercise, limit=target_limit)
+        return
+
+    # 로그인 필수: 유효 토큰이 없으면 세션 거부
+    if user_id is None:
+        await _reject_unauthorized(websocket, mode="COACH")
         return
 
     yolo_model = getattr(websocket.app.state, "yolo_model", None)
@@ -114,13 +174,15 @@ async def coach_endpoint(
     from app.exercises.shared.measurement import CoachingProcessor
 
     # 1. 연결 서비스 생성
-    service = MotionService(websocket, yolo_model)
-    
+    service = MotionService(websocket, yolo_model, user_id=user_id, exercise_code=exercise)
+
     # 2. URL path exerciseId를 내부 스테이지명으로 변환
     exercise_name = resolve_coaching_stage(exercise)
     
     if not exercise_name:
+        await websocket.accept()
         await websocket.send_json({ "mode": "ERROR", "feedback": f"알 수 없는 운동: {exercise}" })
+        await websocket.close(code=1008, reason="unsupported_exercise")
         return
     
     # 3. 목표각은 "요청값 > 운동 기본값 > 시스템 기본값" 우선순위로 결정
@@ -136,7 +198,10 @@ async def coach_endpoint(
 async def dtw_endpoint(
     websocket: WebSocket,
     exercise: str,
+    rom: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
 ):
+    user_id = _resolve_ws_user_id(token)
     if settings.mock_pipeline_mode:
         await websocket.accept()
         await websocket.send_json(
@@ -157,7 +222,12 @@ async def dtw_endpoint(
         )
         await websocket.close()
         return
-    
+
+    # 로그인 필수: 유효 토큰이 없으면 세션 거부
+    if user_id is None:
+        await _reject_unauthorized(websocket, mode="DTW")
+        return
+
     yolo_model = getattr(websocket.app.state, "yolo_model", None)
     print(
         "[DEBUG DTW] app.state dict =",
@@ -180,13 +250,21 @@ async def dtw_endpoint(
         )
         return
     
+    import json as _json
     from app.services.motion_service import MotionService
     from app.exercises.bird_dog.processor import BirdDogDTWProcessor, BirdDogDTW
     from app.exercises.shoulder_front_raise.processor import ShoulderFrontRaiseLeftDTWProcessor, ShoulderFrontRaiseLeftDTW
-    from app.exercises.knee_raise.processor import KneeRaiseRightDTWProcessor, KneeRaiseRightDTW
     from app.exercises.neck_rotation.processor import NeckRotationDTWProcessor, NeckRotationDTW
+    from app.exercises.straight_leg_raise.processor import StraightLegRaiseRightDTWProcessor, StraightLegRaiseRightDTW
 
-    service = MotionService(websocket, yolo_model)
+    rom_data: dict | None = None
+    if rom:
+        try:
+            rom_data = _json.loads(rom)
+        except Exception:
+            logger.warning("[DTW] rom 파라미터 파싱 실패, 기본값 사용: %s", rom[:80])
+
+    service = MotionService(websocket, yolo_model, user_id=user_id, exercise_code=exercise)
 
     if exercise == "bird_dog":
         dtw_engine = BirdDogDTW("./app/assets/reference/bird_dog_reference_yolo.json")
@@ -199,6 +277,7 @@ async def dtw_endpoint(
         processor = ShoulderFrontRaiseLeftDTWProcessor(
             dtw_engine,
             mirror_input=False,
+            rom=rom_data,
         )
 
     elif exercise == "shoulder_front_raise_right":
@@ -208,32 +287,27 @@ async def dtw_endpoint(
         processor = ShoulderFrontRaiseLeftDTWProcessor(
             dtw_engine,
             mirror_input=True,
-        )    
-        
-    elif exercise == "knee_raise_right":
-        dtw_engine = KneeRaiseRightDTW(
-            "./app/assets/reference/knee_raise_left_reference_yolo.json"
-        )
-        processor = KneeRaiseRightDTWProcessor(
-            dtw_engine,
-            use_left_flip=False,
-        )
-
-    elif exercise == "knee_raise_left":
-        dtw_engine = KneeRaiseRightDTW(
-            "./app/assets/reference/knee_raise_left_reference_yolo.json"
-        )
-        processor = KneeRaiseRightDTWProcessor(
-            dtw_engine,
-            use_left_flip=True,
+            rom=rom_data,
         )
         
     elif exercise == "neck_rotation":
         dtw_engine = NeckRotationDTW(
             ref_path="./app/assets/reference/neck_rotation_reference_yolo.json"
         )
-        processor = NeckRotationDTWProcessor(dtw_engine)
-        
+        processor = NeckRotationDTWProcessor(dtw_engine, rom=rom_data)
+
+    elif exercise == "straight_leg_raise_right":
+        dtw_engine = StraightLegRaiseRightDTW(
+            "./app/assets/reference/straight_leg_raise_left_reference_yolo.json"
+        )
+        processor = StraightLegRaiseRightDTWProcessor(dtw_engine, use_left_flip=False, rom=rom_data)
+
+    elif exercise == "straight_leg_raise_left":
+        dtw_engine = StraightLegRaiseRightDTW(
+            "./app/assets/reference/straight_leg_raise_left_reference_yolo.json"
+        )
+        processor = StraightLegRaiseRightDTWProcessor(dtw_engine, use_left_flip=True, rom=rom_data)
+
     else:
         await websocket.accept()
         await websocket.send_json(

@@ -12,6 +12,7 @@ export default function RegisterPage() {
     login_id: "",
     user_name: "",
     phone_number: "",
+    gender: "M", // [성별 추가] 남(M)/여(F) 택1, 기본값은 남자(M)
     password: "",
     passwordConfirm: "",
   });
@@ -48,6 +49,9 @@ export default function RegisterPage() {
     if (!form.user_name.trim()) return "이름을 입력해주세요.";
     if (form.user_name.trim().length > 100) return "이름은 100자 이하로 입력해주세요.";
 
+    // [성별 추가] 남(M)/여(F) 외의 값이면 가입 차단
+    if (form.gender !== "M" && form.gender !== "F") return "성별을 선택해주세요.";
+
     const phone = form.phone_number.replace(/\D/g, "");
     if (!phone) return "전화번호를 입력해주세요.";
     if (phone.length < 4) return "전화번호는 4자 이상 입력해주세요.";
@@ -77,6 +81,7 @@ export default function RegisterPage() {
       login_id: form.login_id.trim(),
       user_name: form.user_name.trim(),
       phone_number: form.phone_number.replace(/\D/g, ""),
+      gender: form.gender, // [성별 추가] 선택한 성별을 서버로 전송
       password: form.password,
     };
 
@@ -106,6 +111,7 @@ export default function RegisterPage() {
               tokenType: data.token_type || "bearer",
               userName: data.user_name,
               userId: data.user_id,
+              userGender: data.gender,
             });
 
       navigate("/login");
@@ -174,6 +180,40 @@ export default function RegisterPage() {
             />
             <p className={`${hintClass} ${getHintColor(form.user_name, userNameValid)}`}>
               1자 이상 100자 이하
+            </p>
+          </div>
+
+          {/* [성별 추가] 남/여 택1 선택 버튼. 선택된 쪽만 강조되고 하나만 선택 가능 */}
+          <div>
+            <label className={labelClass}>
+              성별 <span className="text-rose-400">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: "M", label: "남자" },
+                { value: "F", label: "여자" },
+              ].map((option) => {
+                const selected = form.gender === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() =>
+                      setForm((prev) => ({ ...prev, gender: option.value }))
+                    }
+                    className={`h-12 rounded-2xl border font-semibold outline-none ${
+                      selected
+                        ? "bg-cyan-400 border-cyan-400 text-slate-900"
+                        : "bg-slate-800 border-slate-700 text-slate-200 hover:border-cyan-400"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className={`${hintClass} ${form.gender ? "text-emerald-400" : "text-slate-400"}`}>
+              {form.gender ? "선택 완료" : "남자 또는 여자를 선택해주세요"}
             </p>
           </div>
 

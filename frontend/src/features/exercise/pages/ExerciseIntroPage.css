@@ -1,0 +1,241 @@
+.ei-root {
+  min-height: 100%;
+  background: transparent;
+  color: #fff;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+}
+
+.ei-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(148,163,184,0.10);
+}
+
+.ei-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid rgba(148,163,184,0.18);
+  color: rgba(226,232,240,0.85);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ei-back:hover { border-color: rgba(148,163,184,0.35); }
+
+.ei-main {
+  flex: 1;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.ei-hero {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.ei-cover {
+  position: relative;
+  width: 260px;
+  min-width: 260px;
+  height: 180px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(15,23,42,0.85);
+  flex-shrink: 0;
+}
+.ei-coverImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ei-coverFallback {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(400px 160px at 40% 20%, rgba(59,130,246,0.4), transparent 60%),
+    linear-gradient(180deg, rgba(15,23,42,0.9), rgba(2,6,23,0.9));
+}
+.ei-coverShade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(2,6,23,0) 40%, rgba(2,6,23,0.6) 100%);
+}
+
+.ei-heroInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.ei-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #60a5fa;
+  font-weight: 900;
+}
+
+.ei-name {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.ei-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ei-badge {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.25);
+  color: rgba(226,232,240,0.8);
+}
+
+.ei-goal {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(226,232,240,0.72);
+  font-weight: 700;
+  line-height: 1.55;
+  max-width: 480px;
+}
+
+.ei-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .ei-hero { flex-direction: column; }
+  .ei-cover { width: 100%; min-width: unset; height: 200px; }
+  .ei-content { grid-template-columns: 1fr; }
+}
+
+.ei-panel {
+  background: rgba(15,23,42,0.7);
+  border: 1px solid rgba(148,163,184,0.12);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.ei-panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 900;
+  margin-bottom: 16px;
+  color: #e2e8f0;
+}
+
+.ei-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ei-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ei-stepNum {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(37,99,235,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: #fff;
+}
+
+.ei-stepText {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(226,232,240,0.88);
+  line-height: 1.55;
+  padding-top: 3px;
+}
+
+.ei-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ei-tip {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(226,232,240,0.82);
+  line-height: 1.55;
+}
+
+.ei-tipDot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #f59e0b;
+  margin-top: 8px;
+}
+
+.ei-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.ei-startBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(37,99,235,0.95);
+  border: 1px solid rgba(59,130,246,0.7);
+  color: #fff;
+  border-radius: 14px;
+  padding: 16px 40px;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+  font-family: inherit;
+}
+.ei-startBtn:hover {
+  background: rgba(29,78,216,0.97);
+}

@@ -1,3 +1,8 @@
+# 운동 종목 목록과 각 운동의 실행 설정을 관리하는 모듈.
+# 프론트엔드에서 보내는 운동 ID나 신체 부위 이름을 내부 처리 이름(스테이지)으로 변환하고,
+# 목표 각도(limit) 기본값을 운동별로 지정합니다.
+# 새 운동을 추가할 때는 이 파일의 EXERCISE_REGISTRY에만 항목을 추가하면 됩니다.
+
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 
@@ -5,7 +10,7 @@ from typing import Dict, List, Optional, Any
 # 프론트의 part 쿼리값 -> 내부 측정 스테이지명 매핑
 # 이 파일에 매핑을 모아두면, 라우터 코드(api.py)를 수정하지 않고도 확장이 쉽습니다.
 PART_TO_MEASURE_STAGE: Dict[str, str] = {
-    "shoulder": "SHOULDER_ABDUCTION",
+    "shoulder": "BILATERAL_SHOULDER_ABDUCTION",
     "shoulder_left": "LEFT_SHOULDER_ABDUCTION",
     "shoulder_right": "RIGHT_SHOULDER_ABDUCTION",
     "hip": "SIDE_LEG_RAISE",
@@ -14,6 +19,8 @@ PART_TO_MEASURE_STAGE: Dict[str, str] = {
 }
 
 
+# 운동 하나의 실행 설정을 담는 데이터 구조.
+# 운동 ID, 내부 스테이지명, 모델 키, 기본 목표각, 활성화 여부를 포함합니다.
 @dataclass(frozen=True)
 class ExerciseRuntimeConfig:
     """
@@ -61,6 +68,10 @@ EXERCISE_REGISTRY: Dict[str, ExerciseRuntimeConfig] = {
 }
 
 
+# 프론트에서 "parts=shoulder,knee_left" 형태로 전달한 측정 부위 목록을
+# 내부 스테이지 이름 리스트로 변환합니다.
+# 매개변수: parts_query - 쉼표로 구분된 신체 부위 문자열 (예: "shoulder,knee_left")
+# 반환값: 내부 스테이지 이름 리스트, 유효한 부위가 없으면 None
 def parse_measure_schedule(parts_query: Optional[str]) -> Optional[List[str]]:
     """
     측정 요청(parts=a,b,c)을 내부 스테이지 리스트로 변환합니다.
@@ -86,6 +97,10 @@ def parse_measure_schedule(parts_query: Optional[str]) -> Optional[List[str]]:
     return parsed or None
 
 
+# 프론트에서 보낸 운동 ID(예: "sh-001") 또는 내부 스테이지명을
+# 코칭에 사용할 내부 스테이지명으로 변환합니다.
+# 매개변수: exercise_id_or_name - 프론트 운동 ID 또는 내부 스테이지명 문자열
+# 반환값: 해당하는 내부 스테이지명 문자열, 없으면 None
 def resolve_coaching_stage(exercise_id_or_name: str) -> Optional[str]:
     """
     코칭 경로 파라미터를 내부 스테이지명으로 해석합니다.
@@ -108,6 +123,11 @@ def resolve_coaching_stage(exercise_id_or_name: str) -> Optional[str]:
     return None
 
 
+# 코칭 목표 각도를 결정합니다.
+# 프론트에서 명시적으로 보낸 값을 최우선으로 사용하고,
+# 없으면 운동별 기본값을, 그것도 없으면 45도를 반환합니다.
+# 매개변수: exercise_id_or_name - 운동 ID / requested_limit - 프론트가 요청한 목표각 (없으면 None)
+# 반환값: 최종 목표 각도 (정수)
 def resolve_limit(exercise_id_or_name: str, requested_limit: Optional[int]) -> int:
     """
     코칭 목표각 우선순위:
@@ -125,6 +145,8 @@ def resolve_limit(exercise_id_or_name: str, requested_limit: Optional[int]) -> i
     return 45
 
 
+# 프론트가 운동 목록 API를 통해 받아볼 수 있도록 최소 정보를 정리해 반환합니다.
+# 반환값: 각 운동의 ID, 스테이지명, 모델 키, 기본 목표각, 활성화 여부를 담은 딕셔너리 리스트
 def list_exercises_for_client() -> List[Dict[str, Any]]:
     """
     프론트가 운동 목록을 API로 받아 쓸 수 있도록 최소 메타를 제공합니다.

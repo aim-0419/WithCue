@@ -1,0 +1,14 @@
+{
+  "rom": {
+    "shoulder_left_flexion_max": 177,
+    "shoulder_right_flexion_max": 24,
+    "neck_rotation_left_max": 67,
+    "neck_rotation_right_max": 67,
+    "knee_flexion_at_sit_left": 120,
+    "knee_flexion_at_sit_right": 82,
+    "sts_completed": true,
+    "seated_knee_extension_left_max": 158,
+    "seated_knee_extension_right_max": 153
+  },
+  "measured_at": "2026-07-02T13:07:29"
+}

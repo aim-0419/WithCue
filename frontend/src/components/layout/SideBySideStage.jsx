@@ -48,7 +48,8 @@ export default function SideBySideStage({
 
       <style>{`
         .stage-root{
-          height:100vh;
+          height:100%;
+          position:relative;
           background:#0b1220;
           display:flex;
           flex-direction:column;

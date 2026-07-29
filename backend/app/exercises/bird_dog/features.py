@@ -1,4 +1,7 @@
-# 버드독 운동 feature 추출 (MediaPipe / YOLO)
+# 버드독 운동의 관절 각도와 신체 수치를 계산하는 모듈.
+# 카메라로 촬영된 영상에서 어깨, 팔꿈치, 손목, 엉덩이, 무릎, 발목의 위치를 받아
+# 몸통 기울기, 팔/다리 들어올림 각도, 수평 오차, 관절 펴짐 각도 등 총 14개의 수치를 계산한다.
+# MediaPipe 방식(번호 체계 A)과 YOLO 방식(번호 체계 B) 두 가지를 모두 지원한다.
 import math
 import numpy as np
 from app.exercises.shared.dtw_feature_extractor import (
@@ -9,6 +12,12 @@ from app.exercises.shared.dtw_feature_extractor import (
 )
 
 
+# MediaPipe 방식의 관절 좌표를 받아 버드독 운동의 14개 feature 수치를 계산한다.
+# pts: 관절 번호를 키, (x, y) 좌표를 값으로 갖는 딕셔너리
+# 반환: [몸통기울기, 골반기울기, 오른팔각도, 왼다리각도, 왼팔각도, 오른다리각도,
+#        오른팔수평오차, 왼다리수평오차, 왼팔수평오차, 오른다리수평오차,
+#        오른팔꿈치각도, 왼팔꿈치각도, 왼무릎각도, 오른무릎각도] 총 14개 실수 리스트.
+#        필요한 관절이 감지되지 않으면 None 반환.
 def get_bird_dog_features_mp(pts: dict):
     """
     MediaPipe landmark 번호 기준
@@ -105,6 +114,10 @@ def get_bird_dog_features_mp(pts: dict):
     ]
 
 
+# YOLOv8 방식의 관절 좌표를 받아 버드독 운동의 14개 feature 수치를 계산한다.
+# pts: YOLO COCO 기준 관절 번호를 키, (x, y) 좌표를 값으로 갖는 딕셔너리
+# 반환: MediaPipe 버전과 동일한 구조의 14개 실수 리스트.
+#        필요한 관절이 감지되지 않으면 None 반환.
 def get_bird_dog_features_yolo(pts: dict):
     """
     YOLOv8 Pose COCO keypoint 기준

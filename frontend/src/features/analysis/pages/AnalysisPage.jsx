@@ -1,424 +1,486 @@
+// 재활 운동 수행 점수와 자세 분석 ROM 추이를 탭으로 전환해 보여주는 통계 페이지.
 import { useEffect, useMemo, useState } from "react";
+import bodyDefault from "../../../assets/body/body_default.png";
+import { Activity, TrendingUp } from "lucide-react";
 import {
-  Activity,
-  BarChart3,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-} from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import TopBar from "../../../components/layout/TopBar";
 import BottomNav from "../../../components/layout/BottomNav";
-import { fetchAccuracyHistory } from "../../../services/accuracyApi";
-import { readLatestAccuracy, toWeeklyChartData } from "../../../utils/accuracyHistory";
+import { fetchSessions, fetchRomHistory } from "../../../services/sessionApi";
+
+const DAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+
+function getThisWeekDays() {
+  const now = new Date();
+  const sunday = new Date(now);
+  sunday.setDate(now.getDate() - now.getDay());
+  sunday.setHours(0, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sunday);
+    d.setDate(sunday.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
 
 const EXERCISE_OPTIONS = [
   { id: "all", label: "전체" },
-  { id: "bird_dog", label: "버드독" },
-  { id: "shoulder_front_raise_left", label: "어깨 전방 거상(왼쪽)" },
-  { id: "shoulder_front_raise_right", label: "어깨 전방 거상(오른쪽)" },
-  { id: "knee_raise_left", label: "무릎 들어올리기(왼쪽)" },
-  { id: "knee_raise_right", label: "무릎 들어올리기(오른쪽)" },
-  { id: "neck_rotation", label: "목 좌우 돌리기" },
+  { id: "neck_rotation", label: "목 돌리기" },
+  {
+    id: "shoulder_front_raise",
+    label: "어깨 전방 거상",
+    sides: [
+      { key: "shoulder_front_raise_left", label: "왼쪽", color: "#22c55e" },
+      { key: "shoulder_front_raise_right", label: "오른쪽", color: "#f97316" },
+    ],
+  },
+  {
+    id: "straight_leg_raise",
+    label: "무릎 들어올리기",
+    sides: [
+      { key: "straight_leg_raise_left", label: "왼쪽", color: "#22c55e" },
+      { key: "straight_leg_raise_right", label: "오른쪽", color: "#f97316" },
+    ],
+  },
 ];
 
-function getAverageScore(items) {
-  if (!Array.isArray(items) || items.length === 0) return 0;
-  const valid = items.filter(
-    (item) => typeof item?.score === "number" && item.score > 0
-  );
-  if (valid.length === 0) return 0;
-  const total = valid.reduce((sum, item) => sum + item.score, 0);
-  return Math.round(total / valid.length);
+// 각 그룹은 좌/우(또는 여러 키)를 한 차트에 함께 표시한다.
+const ROM_GROUPS = [
+  {
+    label: "목",
+    lines: [
+      { keys: ["neck_rotation_left_max"], label: "왼쪽", color: "#34d399" },
+      { keys: ["neck_rotation_right_max"], label: "오른쪽", color: "#38bdf8" },
+    ],
+  },
+  {
+    label: "어깨",
+    lines: [
+      { keys: ["shoulder_left_flexion_max", "shoulder_left_abduction_max"], label: "왼쪽", color: "#34d399" },
+      { keys: ["shoulder_right_flexion_max", "shoulder_right_abduction_max"], label: "오른쪽", color: "#38bdf8" },
+    ],
+  },
+  {
+    label: "무릎",
+    lines: [
+      { keys: ["knee_left_flexion_max"], label: "왼쪽", color: "#34d399" },
+      { keys: ["knee_right_flexion_max"], label: "오른쪽", color: "#38bdf8" },
+    ],
+  },
+  {
+    label: "고관절",
+    lines: [
+      { keys: ["hip_left_flexion_max"], label: "왼쪽", color: "#34d399" },
+      { keys: ["hip_right_flexion_max"], label: "오른쪽", color: "#38bdf8" },
+    ],
+  },
+];
+
+// 인체 이미지 위 각 ROM 부위 점 위치 (이미지 컨테이너 기준 %)
+const ROM_MARKERS = [
+  { groupIdx: 0, dots: [{ top: "14%", left: "50%" }] },                                    // 목
+  { groupIdx: 1, dots: [{ top: "18%", left: "35%" }, { top: "18%", left: "64%" }] },       // 어깨
+  { groupIdx: 3, dots: [{ top: "40%", left: "42%" }, { top: "40%", left: "58%" }] },       // 고관절
+  { groupIdx: 2, dots: [{ top: "64%", left: "43%" }, { top: "64%", left: "57%" }] },       // 무릎
+];
+
+function getDotColor(diff) {
+  if (diff == null) return "#475569";
+  if (diff <= 5) return "#22c55e";
+  if (diff <= 10) return "#eab308";
+  return "#f97316";
 }
 
-function getBestDay(items) {
-  const valid = Array.isArray(items)
-    ? items.filter((item) => typeof item?.score === "number")
-    : [];
-  if (valid.length === 0) return { name: "-", score: 0 };
-  const maxScore = Math.max(...valid.map((item) => item.score ?? 0));
-  if (maxScore <= 0) return { name: "-", score: 0 };
-  return valid.reduce((best, current) =>
-    current.score > best.score ? current : best
-  );
+function formatDateShort(iso) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function getMonday(date = new Date()) {
-  const current = new Date(date);
-  const day = current.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  current.setHours(0, 0, 0, 0);
-  current.setDate(current.getDate() + diff);
-  return current;
-}
+const TOOLTIP_STYLE = {
+  backgroundColor: "#0f172a",
+  border: "1px solid rgba(148,163,184,0.2)",
+  borderRadius: "12px",
+  color: "#fff",
+  fontSize: 13,
+};
 
-function addDays(date, days) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
+// ── 재활 운동 탭 ──────────────────────────────────────────────────────────────
+function ExerciseTab({ sessions }) {
+  const [selectedExercise, setSelectedExercise] = useState("all");
 
-function toLocalDateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
+  const selectedOpt = EXERCISE_OPTIONS.find((o) => o.id === selectedExercise);
+  const isSided = !!selectedOpt?.sides;
 
-function toWeeklyAverageChartData(items, baseDate = new Date()) {
-  const monday = getMonday(baseDate);
-  const buckets = new Map();
+  const chartData = useMemo(() => {
+    const weekDays = getThisWeekDays();
+    const weekStart = new Date(weekDays[0]);
+    const weekEnd = new Date(weekDays[6]);
+    weekEnd.setHours(23, 59, 59, 999);
 
-  (items || []).forEach((entry) => {
-    const measuredOn = entry?.measured_on;
-    const score = entry?.accuracy_pct;
-    if (!measuredOn || typeof score !== "number") return;
-    const dateKey = String(measuredOn);
-    if (!buckets.has(dateKey)) {
-      buckets.set(dateKey, []);
-    }
-    buckets.get(dateKey).push(score);
-  });
-
-  const labels = ["월", "화", "수", "목", "금", "토", "일"];
-  return labels.map((label, index) => {
-    const date = addDays(monday, index);
-    const dateKey = toLocalDateKey(date);
-    const dayScores = buckets.get(dateKey) || [];
-    const avg =
-      dayScores.length > 0
-        ? Math.round(dayScores.reduce((sum, val) => sum + val, 0) / dayScores.length)
-        : 0;
-    return { name: label, score: avg };
-  });
-}
-
-export default function AnalysisPage() {
-  const [weeklyAccuracyData, setWeeklyAccuracyData] = useState(() =>
-    toWeeklyChartData(new Date(), "exercise")
-  );
-  const [serverLatestAccuracy, setServerLatestAccuracy] = useState(null);
-  const [latestExerciseLabel, setLatestExerciseLabel] = useState(null);
-  const [selectedExerciseId, setSelectedExerciseId] = useState("all");
-  const [selectedLatestAccuracy, setSelectedLatestAccuracy] = useState(null);
-  const [selectedExerciseLabel, setSelectedExerciseLabel] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadWeeklyAccuracy() {
-      try {
-        const items = await fetchAccuracyHistory({
-          sourceType: "exercise",
-          limit: 200,
-        });
-        if (!mounted) return;
-        setWeeklyAccuracyData(
-          Array.isArray(items) && items.length > 0
-            ? toWeeklyAverageChartData(items, new Date())
-            : toWeeklyAverageChartData([], new Date())
-        );
-        const latest = Array.isArray(items) && items.length > 0 ? items[0] : null;
-        setServerLatestAccuracy(
-          typeof latest?.accuracy_pct === "number" ? latest.accuracy_pct : null
-        );
-      } catch (error) {
-        if (!mounted) return;
-        console.error("[Accuracy] failed to fetch weekly data", error);
-      }
-    }
-
-    async function loadLatestExercise() {
-      try {
-        const items = await fetchAccuracyHistory({
-          sourceType: "exercise",
-          limit: 1,
-        });
-        if (!mounted || !Array.isArray(items) || items.length === 0) return;
-        const latest = items[0];
-        const sourceKey = latest?.source_key;
-        const labelMap = {
-          bird_dog: "버드독",
-          shoulder_front_raise_left: "어깨 전방 거상(왼쪽)",
-          shoulder_front_raise_right: "어깨 전방 거상(오른쪽)",
-          knee_raise_left: "무릎 들어올리기(왼쪽)",
-          knee_raise_right: "무릎 들어올리기(오른쪽)",
-          neck_rotation: "목 좌우 돌리기",
-        };
-        setLatestExerciseLabel(labelMap[sourceKey] ?? "운동");
-      } catch (error) {
-        if (!mounted) return;
-        console.error("[Accuracy] failed to fetch latest exercise", error);
-      }
-    }
-
-    loadWeeklyAccuracy();
-    loadLatestExercise();
-    return () => {
-      mounted = false;
+    const inWeek = (s) => { const d = new Date(s.recordedAt); return d >= weekStart && d <= weekEnd; };
+    const toKey = (iso) => new Date(iso).toISOString().slice(0, 10);
+    const dailyAvg = (scores) => {
+      const v = scores.filter((x) => x != null && x > 0);
+      return v.length > 0 ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0;
     };
-  }, []);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadExerciseTrend() {
-      try {
-        const items = await fetchAccuracyHistory({
-          sourceType: "exercise",
-          sourceKey: selectedExerciseId === "all" ? null : selectedExerciseId,
-          limit: 200,
+    if (isSided) {
+      const maps = Object.fromEntries(selectedOpt.sides.map((s) => [s.key, new Map()]));
+      selectedOpt.sides.forEach((side) => {
+        sessions.filter((s) => s.exerciseCode === side.key && inWeek(s)).forEach((s) => {
+          const dk = toKey(s.recordedAt);
+          if (!maps[side.key].has(dk)) maps[side.key].set(dk, []);
+          maps[side.key].get(dk).push(s.accuracy);
         });
-        if (!mounted) return;
-        setWeeklyAccuracyData(
-          Array.isArray(items) && items.length > 0
-            ? toWeeklyAverageChartData(items, new Date())
-            : toWeeklyAverageChartData([], new Date())
-        );
-      } catch (error) {
-        if (!mounted) return;
-        console.error("[Accuracy] failed to fetch exercise trend", error);
-      }
+      });
+      return weekDays.map((dk, i) => {
+        const point = { name: DAY_LABELS[i] };
+        selectedOpt.sides.forEach((side) => {
+          point[side.key] = dailyAvg(maps[side.key].get(dk) ?? []);
+        });
+        return point;
+      });
     }
 
-    async function loadSelectedLatestAccuracy() {
-      if (selectedExerciseId === "all") {
-        setSelectedLatestAccuracy(null);
-        setSelectedExerciseLabel(null);
-        return;
-      }
-      try {
-        const items = await fetchAccuracyHistory({
-          sourceType: "exercise",
-          sourceKey: selectedExerciseId,
-          limit: 1,
-        });
-        if (!mounted || !Array.isArray(items) || items.length === 0) {
-          setSelectedLatestAccuracy(null);
-          setSelectedExerciseLabel(null);
-          return;
-        }
-        const latest = items[0];
-        setSelectedLatestAccuracy(
-          typeof latest.accuracy_pct === "number" ? latest.accuracy_pct : null
-        );
-        const option = EXERCISE_OPTIONS.find(
-          (entry) => entry.id === selectedExerciseId
-        );
-        setSelectedExerciseLabel(option?.label ?? null);
-      } catch (error) {
-        if (!mounted) return;
-        console.error("[Accuracy] failed to fetch selected latest", error);
-      }
-    }
+    const filtered = (selectedExercise === "all"
+      ? sessions
+      : sessions.filter((s) => s.exerciseCode === selectedExercise)
+    ).filter(inWeek);
+    const byDate = new Map();
+    filtered.forEach((s) => {
+      const dk = toKey(s.recordedAt);
+      if (!byDate.has(dk)) byDate.set(dk, []);
+      byDate.get(dk).push(s.accuracy);
+    });
+    return weekDays.map((dk, i) => ({ name: DAY_LABELS[i], score: dailyAvg(byDate.get(dk) ?? []) }));
+  }, [sessions, selectedExercise, isSided]);
 
-    loadExerciseTrend();
-    loadSelectedLatestAccuracy();
-    return () => {
-      mounted = false;
-    };
-  }, [selectedExerciseId]);
+  const avg = useMemo(() => {
+    if (isSided) return null;
+    const active = chartData.filter((d) => d.score > 0);
+    return active.length > 0
+      ? Math.round(active.reduce((s, d) => s + d.score, 0) / active.length)
+      : null;
+  }, [chartData, isSided]);
 
-  const latestAccuracy =
-    serverLatestAccuracy ?? readLatestAccuracy("exercise") ?? 0;
-  const displayLatestAccuracy =
-    selectedExerciseId === "all"
-      ? latestAccuracy
-      : selectedLatestAccuracy;
-  const averageScore = useMemo(
-    () => getAverageScore(weeklyAccuracyData),
-    [weeklyAccuracyData]
-  );
-  const bestDay = useMemo(
-    () => getBestDay(weeklyAccuracyData),
-    [weeklyAccuracyData]
-  );
-  const needsAttention =
-    typeof displayLatestAccuracy === "number" ? displayLatestAccuracy < 70 : false;
+  const sideAvgs = useMemo(() => {
+    if (!isSided) return null;
+    return Object.fromEntries(
+      selectedOpt.sides.map((side) => {
+        const active = chartData.filter((d) => d[side.key] > 0);
+        const val = active.length > 0
+          ? Math.round(active.reduce((s, d) => s + d[side.key], 0) / active.length)
+          : null;
+        return [side.key, val];
+      })
+    );
+  }, [chartData, isSided, selectedOpt]);
+
+  const makeDot = (color) => (props) => {
+    const { cx, cy, value, index } = props;
+    if (value === 0) return <circle key={index} cx={cx} cy={cy} r={3} fill="rgba(148,163,184,0.25)" />;
+    return <circle key={index} cx={cx} cy={cy} r={4} fill={color} />;
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      <TopBar />
-      <div className="px-6 pb-28 pt-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="mb-8">
-            <div className="text-xs font-bold tracking-[0.3em] text-blue-400 uppercase mb-3">
-              Analysis
+    <div className="flex flex-col gap-3 h-full">
+      {/* 운동 선택 */}
+      <div className="flex gap-2 flex-wrap">
+        {EXERCISE_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setSelectedExercise(opt.id)}
+            className={[
+              "px-4 py-2 rounded-xl text-xs font-bold transition-colors",
+              selectedExercise === opt.id
+                ? "bg-blue-500 text-white"
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700",
+            ].join(" ")}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 좌/우 범례 */}
+      {isSided && (
+        <div className="flex gap-4">
+          {selectedOpt.sides.map((side) => (
+            <div key={side.key} className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full inline-block" style={{ background: side.color }} />
+              <span className="text-xs text-slate-400">{side.label}</span>
             </div>
-            <h1 className="text-3xl font-black tracking-tight mb-2">
-              운동 자세 분석 대시보드
-            </h1>
-            <p className="text-slate-400">
-              요일별 평균 점수 추이를 한눈에 확인해보세요.
-            </p>
-          </div>
+          ))}
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_0.9fr] gap-6">
-            <section className="rounded-[32px] border border-slate-800 bg-slate-900/60 p-6">
-              <div className="flex items-center gap-3 mb-5">
-                <BarChart3 className="text-blue-400" size={20} />
-                <h2 className="text-xl font-bold">
-                  {selectedExerciseId === "all"
-                    ? "주간 평균 점수 추이"
-                    : "운동별 평균 추이"}
-                </h2>
-              </div>
-              <div className="mb-4">
-                <label className="text-xs text-slate-400 font-semibold block mb-2">
-                  운동 선택
-                </label>
-                <select
-                  value={selectedExerciseId}
-                  onChange={(event) => setSelectedExerciseId(event.target.value)}
-                  className="w-full md:w-72 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {EXERCISE_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+      {/* 차트 */}
+      <div className="flex-1 min-h-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+            <XAxis dataKey="name" tickLine={false} axisLine={false} stroke="#64748b" tick={{ fontSize: 11 }} />
+            <YAxis domain={[0, 100]} tickLine={false} axisLine={false} stroke="#64748b" tick={{ fontSize: 11 }} />
+            <Tooltip
+              contentStyle={TOOLTIP_STYLE}
+              formatter={(v, name) => {
+                if (!v) return ["기록 없음", ""];
+                const side = selectedOpt?.sides?.find((s) => s.key === name);
+                return [`${v}점`, side?.label ?? "점수"];
+              }}
+            />
+            {!isSided && avg && <ReferenceLine y={avg} stroke="#38bdf8" strokeDasharray="4 4" strokeOpacity={0.5} />}
+            {isSided && sideAvgs && selectedOpt.sides.map((side) =>
+              sideAvgs[side.key] != null && (
+                <ReferenceLine key={side.key} y={sideAvgs[side.key]} stroke={side.color} strokeDasharray="4 4" strokeOpacity={0.6} />
+              )
+            )}
+            {isSided
+              ? selectedOpt.sides.map((side) => (
+                <Line key={side.key} type="monotone" dataKey={side.key}
+                  stroke={side.color} strokeWidth={2.5}
+                  dot={makeDot(side.color)} activeDot={{ r: 6 }} connectNulls />
+              ))
+              : <Line type="monotone" dataKey="score" stroke="#38bdf8" strokeWidth={2.5}
+                dot={makeDot("#38bdf8")} activeDot={{ r: 6 }} />
+            }
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={weeklyAccuracyData}>
-                    <defs>
-                      <linearGradient id="analysisScoreFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.03} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="name"
-                      tickLine={false}
-                      axisLine={false}
-                      stroke="#64748b"
-                      interval={0}
-                      tickMargin={8}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#0f172a",
-                        border: "1px solid rgba(148, 163, 184, 0.2)",
-                        borderRadius: "14px",
-                        color: "#fff",
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="score"
-                      stroke="#38bdf8"
-                      strokeWidth={3}
-                      fill="url(#analysisScoreFill)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
+// ── 자세 분석 탭 ──────────────────────────────────────────────────────────────
+function RomTab() {
+  const [romData, setRomData] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [selectedGroup, setSelectedGroup] = useState(null);
 
-            <section className="rounded-[32px] border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-6">
-              <h2 className="text-xl font-bold mb-5">이번 주 요약</h2>
+  useEffect(() => {
+    let mounted = true;
+    const allKeys = [...new Set(ROM_GROUPS.flatMap((g) => g.lines.flatMap((l) => l.keys)))];
 
-              <div className="space-y-4">
-                <div className="rounded-2xl bg-slate-800/60 border border-slate-700 p-4">
-                  <div className="text-slate-400 text-xs mb-1">가장 좋은 날</div>
-                  <div className="text-2xl font-bold">{bestDay.name}</div>
-                  <div className="text-sm text-blue-400 mt-1">
-                    {Math.round(bestDay.score ?? 0)}점
-                  </div>
-                </div>
+    Promise.allSettled(
+      allKeys.map((key) =>
+        fetchRomHistory(key).then((payload) => {
+          const items = Array.isArray(payload?.items) ? payload.items : [];
+          const latest = items
+            .filter((item) => item.angle_deg > 0)
+            .reduce((best, item) =>
+              !best || new Date(item.measured_at) > new Date(best.measured_at) ? item : best
+              , null);
+          return { key, data: latest };
+        })
+      )
+    ).then((results) => {
+      if (!mounted) return;
+      const data = {};
+      results.forEach((r) => {
+        if (r.status === "fulfilled" && r.value.data) {
+          data[r.value.key] = r.value.data;
+        }
+      });
+      setRomData(data);
+      setLoading(false);
+    });
 
-                <div className="rounded-2xl bg-slate-800/60 border border-slate-700 p-4">
-                  <div className="text-slate-400 text-xs mb-1">추천 포인트</div>
-                  <div className="text-sm leading-relaxed text-slate-200">
-                    {latestAccuracy >= 85
-                      ? "현재 점수가 좋아 유지 운동과 가벼운 가동성 루틴을 이어가는 것이 좋습니다."
-                      : latestAccuracy >= 70
-                        ? "측정 전후 스트레칭을 함께 진행하면 점수 안정화에 도움이 됩니다."
-                        : "측정과 운동 전 기본 자세를 먼저 확인하고, 강도는 낮춰서 천천히 진행해보세요."}
-                  </div>
-                </div>
+    return () => { mounted = false; };
+  }, []);
 
-                <div className="rounded-2xl bg-slate-800/60 border border-slate-700 p-4">
-                  <div className="text-slate-400 text-xs mb-1">관리 가이드</div>
-                  <ul className="space-y-2 text-sm text-slate-300">
-                    <li>주 3회 이상 측정하면 변화 추이를 더 정확히 볼 수 있습니다.</li>
-                    <li>운동 직후와 휴식일 점수를 비교하면 컨디션 차이를 파악하기 좋습니다.</li>
-                    <li>점수가 낮은 날은 강도보다 자세 정확도를 우선해보세요.</li>
-                  </ul>
-                </div>
-              </div>
-            </section>
-          </div>
+  if (loading) {
+    return <div className="h-full flex items-center justify-center text-slate-500 text-sm">불러오는 중...</div>;
+  }
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-6">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-slate-400 text-sm">최근 정확도</span>
-                <Activity className="text-blue-400" size={18} />
-              </div>
-              <div className="text-5xl font-black mb-2">
-                {typeof displayLatestAccuracy === "number" ? (
+  const getLineVal = (line) => {
+    const entries = line.keys
+      .map((k) => romData[k])
+      .filter(Boolean)
+      .filter((d) => d.angle_deg > 0);
+    if (entries.length === 0) return null;
+    const latest = entries.reduce((best, d) =>
+      new Date(d.measured_at) > new Date(best.measured_at) ? d : best
+    );
+    return Math.round(latest.angle_deg);
+  };
+
+  const getVals = (group) => {
+    const [l, r] = group.lines;
+    const lv = getLineVal(l);
+    const rv = getLineVal(r);
+    const diff = lv != null && rv != null ? Math.abs(lv - rv) : null;
+    return { lv, rv, diff };
+  };
+
+  const activeGroup = selectedGroup != null ? ROM_GROUPS[selectedGroup] : null;
+
+  return (
+    <div className="relative flex justify-center h-full min-h-0">
+      {/* 인체 이미지 */}
+      <div className="relative" style={{ aspectRatio: "2/3", height: "100%", maxWidth: "100%" }}>
+        <img src={bodyDefault} className="h-full w-full object-contain opacity-80" alt="body" />
+        {ROM_MARKERS.map(({ groupIdx, dots }) => {
+          const { diff } = getVals(ROM_GROUPS[groupIdx]);
+          const color = getDotColor(diff);
+          return dots.map((pos, i) => (
+            <div
+              key={`${groupIdx}-${i}`}
+              onClick={() => setSelectedGroup(groupIdx)}
+              style={{
+                position: "absolute",
+                top: pos.top,
+                left: pos.left,
+                transform: "translate(-50%, -50%)",
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: color,
+                boxShadow: `0 0 12px ${color}, 0 0 5px ${color}`,
+                border: "2px solid rgba(255,255,255,0.35)",
+                cursor: "pointer",
+              }}
+            />
+          ));
+        })}
+      </div>
+
+      {/* 모달 */}
+      {activeGroup && (
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.55)", zIndex: 10 }}
+          onClick={() => setSelectedGroup(null)}
+        >
+          <div
+            className="rounded-2xl border border-slate-700 bg-slate-900 p-6 w-64"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 헤더 */}
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-base font-bold text-white">{activeGroup.label}</span>
+              {(() => {
+                const allKeys = activeGroup.lines.flatMap((l) => l.keys);
+                const at = allKeys.map((k) => romData[k]?.measured_at).filter(Boolean)[0];
+                return at
+                  ? <span className="text-xs text-slate-500">{new Date(at).toLocaleDateString("ko-KR")}</span>
+                  : null;
+              })()}
+            </div>
+
+            {/* 좌/차이/우 */}
+            <div className="flex items-center justify-between text-center">
+              {(() => {
+                const [leftLine, rightLine] = activeGroup.lines;
+                const { lv, rv, diff } = getVals(activeGroup);
+                return (
                   <>
-                    {Math.round(displayLatestAccuracy)}
-                    <span className="text-lg text-slate-500 ml-1">%</span>
+                    <div>
+                      <div className="text-xs mb-1" style={{ color: leftLine.color }}>왼쪽</div>
+                      <div className="text-2xl font-black text-white">{lv != null ? `${lv}°` : "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 mb-1">차이</div>
+                      <div className={`text-2xl font-black ${diff != null && diff > 10 ? "text-amber-400" : "text-emerald-300"}`}>
+                        {diff != null ? `${diff}°` : "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs mb-1" style={{ color: rightLine.color }}>오른쪽</div>
+                      <div className="text-2xl font-black text-white">{rv != null ? `${rv}°` : "—"}</div>
+                    </div>
                   </>
-                ) : (
-                  <span className="text-slate-500 text-3xl">-</span>
-                )}
-              </div>
-              <p className="text-slate-400 text-sm">
-                {selectedExerciseId !== "all"
-                  ? selectedExerciseLabel
-                    ? `${selectedExerciseLabel} 기준 점수입니다.`
-                    : "선택한 운동 기준 점수입니다."
-                  : latestExerciseLabel
-                    ? `${latestExerciseLabel} 기준 점수입니다.`
-                    : "가장 최근 운동 세션 기준 점수입니다."}
-              </p>
+                );
+              })()}
             </div>
 
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-slate-400 text-sm">주간 평균</span>
-                <TrendingUp className="text-emerald-400" size={18} />
-              </div>
-              <div className="text-5xl font-black mb-2">
-                {averageScore}
-                <span className="text-lg text-slate-500 ml-1">점</span>
-              </div>
-              <p className="text-slate-400 text-sm">
-                {selectedExerciseId !== "all"
-                  ? selectedExerciseLabel
-                    ? `${selectedExerciseLabel} 주간 평균 점수입니다.`
-                    : "선택한 운동 기준 주간 평균입니다."
-                  : "이번 주 누적 기록을 기반으로 계산한 평균 점수입니다."}
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-slate-400 text-sm">집중 관리</span>
-                {needsAttention ? (
-                  <AlertTriangle className="text-amber-400" size={18} />
-                ) : (
-                  <CheckCircle2 className="text-green-400" size={18} />
-                )}
-              </div>
-              <div className="text-2xl font-bold mb-2">
-                {needsAttention ? "자세 교정 우선" : "안정적인 흐름"}
-              </div>
-              <p className="text-slate-400 text-sm">
-                {needsAttention
-                  ? "최근 점수가 낮아 스트레칭과 기본 자세 점검이 우선입니다."
-                  : "현재 점수가 안정적입니다. 꾸준히 유지해보세요."}
-              </p>
-            </div>
+            <button
+              className="mt-5 w-full py-2 rounded-xl bg-slate-800 text-slate-300 text-sm font-bold"
+              onClick={() => setSelectedGroup(null)}
+            >
+              닫기
+            </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────────────
+export default function AnalysisPage() {
+  const [activeTab, setActiveTab] = useState("exercise");
+  const [exerciseSessions, setExerciseSessions] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchSessions({ limit: 500 })
+      .then((payload) => {
+        if (!mounted) return;
+        const items = Array.isArray(payload?.items) ? payload.items : [];
+        setExerciseSessions(
+          items.map((s) => ({
+            exerciseCode: s.exercise_code,
+            accuracy: typeof s.overall_accuracy_pct === "number" ? Math.round(s.overall_accuracy_pct) : null,
+            recordedAt: s.started_at,
+          }))
+        );
+      })
+      .catch((err) => console.error("[Statistics] 세션 불러오기 실패", err));
+    return () => { mounted = false; };
+  }, []);
+
+  return (
+    <div className="h-screen bg-slate-950 text-white flex flex-col overflow-hidden">
+      <TopBar />
+
+      <div className="flex-1 flex flex-col min-h-0 px-5 pt-4 pb-24">
+        {/* 탭 전환 */}
+        <div className="flex gap-2 mb-5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab("exercise")}
+            className={[
+              "flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold transition-colors",
+              activeTab === "exercise"
+                ? "bg-blue-500/20 border border-blue-500/50 text-blue-300"
+                : "bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700",
+            ].join(" ")}
+          >
+            <Activity size={16} />
+            재활 운동
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("rom")}
+            className={[
+              "flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold transition-colors",
+              activeTab === "rom"
+                ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-300"
+                : "bg-slate-800 border border-slate-700 text-slate-400 hover:bg-slate-700",
+            ].join(" ")}
+          >
+            <TrendingUp size={16} />
+            자세 분석
+          </button>
+        </div>
+
+        {/* 탭 콘텐츠 */}
+        <div className="flex-1 min-h-0">
+          {activeTab === "exercise"
+            ? <ExerciseTab sessions={exerciseSessions} />
+            : <RomTab />
+          }
+        </div>
       </div>
+
       <BottomNav activeTab="analysis" />
     </div>
   );

@@ -5,10 +5,18 @@ export const STORAGE_KEYS = {
   tokenType: "withcue_token_type",
   userName: "withcue_user_name",
   userId: "withcue_user_id",
+  userGender: "withcue_user_gender",
   accuracyHistory: "withcue_accuracy_history",
+  romData: "withcue_rom_data",
 };
 
-export function setAuthSession({ accessToken, tokenType = "bearer", userName, userId }) {
+export function setAuthSession({
+  accessToken,
+  tokenType = "bearer",
+  userName,
+  userId,
+  userGender,
+}) {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem(STORAGE_KEYS.accessToken, accessToken);
@@ -16,6 +24,9 @@ export function setAuthSession({ accessToken, tokenType = "bearer", userName, us
   if (userName) window.localStorage.setItem(STORAGE_KEYS.userName, userName);
   if (userId !== undefined && userId !== null) {
     window.localStorage.setItem(STORAGE_KEYS.userId, String(userId));
+  }
+  if (userGender) {
+    window.localStorage.setItem(STORAGE_KEYS.userGender, userGender);
   }
 }
 
@@ -26,6 +37,7 @@ export function clearAuthSession() {
   window.localStorage.removeItem(STORAGE_KEYS.tokenType);
   window.localStorage.removeItem(STORAGE_KEYS.userName);
   window.localStorage.removeItem(STORAGE_KEYS.userId);
+  window.localStorage.removeItem(STORAGE_KEYS.userGender);
 }
 
 export function getAccessToken() {
@@ -46,6 +58,11 @@ export function getUserName() {
 export function getUserId() {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(STORAGE_KEYS.userId);
+}
+
+export function getUserGender() {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(STORAGE_KEYS.userGender);
 }
 
 export function getAuthHeaders() {

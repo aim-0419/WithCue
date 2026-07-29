@@ -1,7 +1,17 @@
 // src/pages/Exercise/ChooseExercisePage.jsx
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, LayoutGrid, User, Activity, Accessibility, X  } from "lucide-react";
+import { ChevronRight, LayoutGrid, User, Activity, Accessibility, X, Play, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
+import { getRomData } from "../../../utils/romStorage";
+import "./ChooseExercisePage.css";
+
+const ROM_REQUIRED = {
+  shoulder_front_raise_left:  ["shoulder_left_flexion_max"],
+  shoulder_front_raise_right: ["shoulder_right_flexion_max"],
+  straight_leg_raise_left:    ["seated_knee_extension_left_max"],
+  straight_leg_raise_right:   ["seated_knee_extension_right_max"],
+  neck_rotation:              ["neck_rotation_left_max", "neck_rotation_right_max"],
+};
 
 const CATEGORIES = [
   { key: "전체", label: "전체 보기", sub: "맞춤형 진단과 인기 운동 프로그램을 확인하세요.", Icon: LayoutGrid },
@@ -10,19 +20,15 @@ const CATEGORIES = [
   { key: "무릎", label: "하체 / 무릎", sub: "균형·지지·무릎 안정화", Icon: Accessibility },
 ];
 
-
-// 이미지 없으면 그라데이션으로도 돌아가게 cover 선택값 지원
 const EXERCISES = [
   {
     id: "shoulder_front_raise",
     category: "어깨",
-    type: "재활",
-    badgeColor: "blue",
     name: "어깨 전방 거상",
     desc: "팔을 앞쪽으로 들어 올리는 동작을 통해 어깨 전면 근육을 강화하고 안정적인 자세를 유지하는 연습입니다.",
     minutes: 15,
     level: "Medium",
-    cover: "/images/exercises/arm_front_raise.png",
+    cover: "/images/exercises/arm_front_raise.webp",
     sideOptions: [
       { label: "왼쪽", id: "shoulder_front_raise_left" },
       { label: "오른쪽", id: "shoulder_front_raise_right" },
@@ -31,46 +37,140 @@ const EXERCISES = [
   {
     id: "neck_rotation",
     category: "어깨",
-    type: "재활",
-    badgeColor: "blue",
     name: "목 좌우 돌리기",
     desc: "목의 긴장을 풀고 경추 정렬을 돕습니다.",
     minutes: 10,
     level: "Easy",
-    cover: "/images/exercises/neck_rotation.png",
+    cover: "/images/exercises/neck_rotation.webp",
   },
   {
-    id: "bird_dog",
-    category: "허리",
-    type: "재활",
-    badgeColor: "blue",
-    name: "버드독",
-    desc: "코어안정화와 좌우 협응을 위한 운동",
-    minutes: 8,
-    level: "Easy",
-    cover: "/images/exercises/birddog.png",
-  },
-  {
-    id: "knee_raise",
+    id: "straight_leg_raise",
     category: "무릎",
-    type: "재활",
-    badgeColor: "blue",
     name: "무릎 들어올리기",
     desc: "균형·지지 강화로 무릎 부담을 줄입니다.",
     minutes: 10,
     level: "Easy",
-    cover: "/images/exercises/knee_raise.png",
+    cover: "/images/exercises/knee_raise.webp",
     sideOptions: [
-      { label: "왼쪽", id: "knee_raise_left" },
-      { label: "오른쪽", id: "knee_raise_right" },
+      { label: "왼쪽", id: "straight_leg_raise_left" },
+      { label: "오른쪽", id: "straight_leg_raise_right" },
     ],
   },
 ];
+
+const EXERCISE_INTRO = {
+  shoulder_front_raise_left: {
+    name: "어깨 전방 거상 (왼쪽)",
+    category: "어깨 / 목",
+    level: "Medium",
+    minutes: 15,
+    cover: "/images/exercises/arm_front_raise.webp",
+    goal: "어깨 전면 근육을 강화하고 어깨 관절 가동 범위를 늘립니다.",
+    steps: [
+      "발을 어깨 너비로 벌리고 바르게 서서 시작합니다.",
+      "왼팔을 편안하게 내린 상태에서 준비합니다.",
+      "숨을 내쉬면서 왼팔을 앞으로 천천히 들어올립니다.",
+      "어깨 높이(90°)까지 올린 후 1~2초 유지합니다.",
+      "숨을 들이쉬면서 천천히 제자리로 내립니다.",
+    ],
+    tips: [
+      "어깨가 귀 쪽으로 올라가지 않도록 내린 채 진행하세요.",
+      "팔꿈치를 과하게 구부리지 말고 편하게 핍니다.",
+      "몸통이 앞뒤로 흔들리지 않게 상체를 세웁니다.",
+    ],
+  },
+  shoulder_front_raise_right: {
+    name: "어깨 전방 거상 (오른쪽)",
+    category: "어깨 / 목",
+    level: "Medium",
+    minutes: 15,
+    cover: "/images/exercises/arm_front_raise.webp",
+    goal: "어깨 전면 근육을 강화하고 어깨 관절 가동 범위를 늘립니다.",
+    steps: [
+      "발을 어깨 너비로 벌리고 바르게 서서 시작합니다.",
+      "오른팔을 편안하게 내린 상태에서 준비합니다.",
+      "숨을 내쉬면서 오른팔을 앞으로 천천히 들어올립니다.",
+      "어깨 높이(90°)까지 올린 후 1~2초 유지합니다.",
+      "숨을 들이쉬면서 천천히 제자리로 내립니다.",
+    ],
+    tips: [
+      "어깨가 귀 쪽으로 올라가지 않도록 내린 채 진행하세요.",
+      "팔꿈치를 과하게 구부리지 말고 편하게 핍니다.",
+      "몸통이 앞뒤로 흔들리지 않게 상체를 세웁니다.",
+    ],
+  },
+  neck_rotation: {
+    name: "목 좌우 돌리기",
+    category: "어깨 / 목",
+    level: "Easy",
+    minutes: 10,
+    cover: "/images/exercises/neck_rotation.webp",
+    goal: "경추 가동성을 높이고 목 주변 근육의 긴장을 풀어줍니다.",
+    steps: [
+      "바른 자세로 앉거나 서서 정면을 바라봅니다.",
+      "천천히 고개를 오른쪽으로 돌려 2~3초 유지합니다.",
+      "통증 없이 최대한 돌릴 수 있는 범위까지만 움직입니다.",
+      "중립 위치(정면)로 돌아옵니다.",
+      "같은 방법으로 왼쪽으로 돌려 2~3초 유지합니다.",
+    ],
+    tips: [
+      "몸통은 고정하고 목만 움직이세요.",
+      "통증이 느껴지면 즉시 멈추고 범위를 줄이세요.",
+      "빠르게 돌리지 말고 천천히 제어하며 움직입니다.",
+    ],
+  },
+  straight_leg_raise_left: {
+    name: "무릎 들어올리기 (왼쪽)",
+    category: "하체 / 무릎",
+    level: "Easy",
+    minutes: 10,
+    cover: "/images/exercises/knee_raise.webp",
+    goal: "왼쪽 다리 근력을 강화하고 무릎 관절의 안정성을 높입니다.",
+    steps: [
+      "바른 자세로 서서 양발을 어깨 너비로 벌립니다.",
+      "균형을 잡기 위해 필요하면 벽이나 의자를 가볍게 짚습니다.",
+      "왼쪽 무릎을 천천히 최대한 높이 들어올립니다.",
+      "1~2초 유지한 후 천천히 내려놓습니다.",
+    ],
+    tips: [
+      "상체가 앞뒤로 기울지 않도록 허리를 곧게 세웁니다.",
+      "무릎을 올릴 때 발끝이 바닥을 향하도록 합니다.",
+      "통증이 느껴지면 즉시 멈추세요.",
+    ],
+  },
+  straight_leg_raise_right: {
+    name: "무릎 들어올리기 (오른쪽)",
+    category: "하체 / 무릎",
+    level: "Easy",
+    minutes: 10,
+    cover: "/images/exercises/knee_raise.webp",
+    goal: "오른쪽 다리 근력을 강화하고 무릎 관절의 안정성을 높입니다.",
+    steps: [
+      "바른 자세로 서서 양발을 어깨 너비로 벌립니다.",
+      "균형을 잡기 위해 필요하면 벽이나 의자를 가볍게 짚습니다.",
+      "오른쪽 무릎을 천천히 최대한 높이 들어올립니다.",
+      "1~2초 유지한 후 천천히 내려놓습니다.",
+    ],
+    tips: [
+      "상체가 앞뒤로 기울지 않도록 허리를 곧게 세웁니다.",
+      "무릎을 올릴 때 발끝이 바닥을 향하도록 합니다.",
+      "통증이 느껴지면 즉시 멈추세요.",
+    ],
+  },
+};
+
+const LEVEL_COLOR = { Easy: "#22c55e", Medium: "#f59e0b", Hard: "#ef4444" };
 
 export default function ChooseExercisePage() {
   const navigate = useNavigate();
   const [cat, setCat] = useState("전체");
   const [sidePrompt, setSidePrompt] = useState(null);
+  const [introId, setIntroId] = useState(null);
+
+  function goExercise(exerciseId) {
+    setSidePrompt(null);
+    setIntroId(exerciseId);
+  }
 
   const activeCat = useMemo(
     () => CATEGORIES.find((c) => c.key === cat) || CATEGORIES[0],
@@ -82,9 +182,10 @@ export default function ChooseExercisePage() {
     return EXERCISES.filter((e) => e.category === cat);
   }, [cat]);
 
+  const intro = introId ? (EXERCISE_INTRO[introId] ?? null) : null;
+
   return (
     <div className="cw-root">
-      {/* Sidebar */}
       <aside className="cw-side">
         <div className="cw-sideTop">
           <div className="cw-sideEyebrow">SELECT WORKOUT</div>
@@ -98,9 +199,7 @@ export default function ChooseExercisePage() {
               className={cat === c.key ? "cw-item active" : "cw-item"}
               onClick={() => setCat(c.key)}
             >
-              <span className="cw-iconBox">
-                <c.Icon size={18} />
-              </span>
+              <span className="cw-iconBox"><c.Icon size={18} /></span>
               <span className="cw-itemText">{c.label}</span>
               <span className="cw-itemRight" />
             </button>
@@ -114,7 +213,6 @@ export default function ChooseExercisePage() {
         </div>
       </aside>
 
-      {/* Main */}
       <main className="cw-main">
         <header className="cw-mainHeader">
           <div className="cw-mainTitle">{activeCat.label}</div>
@@ -129,9 +227,9 @@ export default function ChooseExercisePage() {
               onClick={() => {
                 if (e.sideOptions && e.sideOptions.length > 0) {
                   setSidePrompt(e);
-                  return;
+                } else {
+                  goExercise(e.id);
                 }
-                navigate(`/exercise/${e.id}`);
               }}
             >
               <div className="cw-cover">
@@ -141,30 +239,16 @@ export default function ChooseExercisePage() {
                   <div className="cw-coverFallback" />
                 )}
                 <div className="cw-coverShade" />
-
               </div>
-
               <div className="cw-cardBody">
                 <div className="cw-cardName">{e.name}</div>
                 <div className="cw-cardDesc">{e.desc}</div>
-
                 <div className="cw-metaRow">
                   <div className="cw-metaLeft">
-                    <span className="cw-meta">
-                      ⏱ {e.minutes} min
-                    </span>
-                    {e.level ? (
-                      <span className="cw-meta">• {e.level}</span>
-                    ) : (
-                      <span className="cw-meta" style={{ opacity: 0.6 }}>
-                        • Analysis
-                      </span>
-                    )}
+                    <span className="cw-meta">⏱ {e.minutes} min</span>
+                    {e.level && <span className="cw-meta">• {e.level}</span>}
                   </div>
-
-                  <div className="cw-play">
-                    <ChevronRight size={18} />
-                  </div>
+                  <div className="cw-play"><ChevronRight size={18} /></div>
                 </div>
               </div>
             </button>
@@ -172,343 +256,113 @@ export default function ChooseExercisePage() {
         </section>
       </main>
 
-      {sidePrompt ? (
-        <div className="cw-modal">
-          <div className="cw-modalCard">
-            <div className="cw-modalTop">
-              <div>
-                <div className="cw-modalTitle">{sidePrompt.name}</div>
-                <div className="cw-modalSub">운동할 방향을 선택해주세요.</div>
+      {/* 좌우 선택 모달 */}
+      <div
+        className="cw-modal"
+        aria-hidden={!sidePrompt}
+        style={{ opacity: sidePrompt ? 1 : 0, pointerEvents: sidePrompt ? "auto" : "none" }}
+      >
+        <div className="cw-modalCard">
+          {sidePrompt && (
+            <>
+              <div className="cw-modalTop">
+                <div>
+                  <div className="cw-modalTitle">{sidePrompt.name}</div>
+                  <div className="cw-modalSub">운동할 방향을 선택해주세요.</div>
+                </div>
+                <button className="cw-modalClose" onClick={() => setSidePrompt(null)} aria-label="닫기">
+                  <X size={18} />
+                </button>
               </div>
-              <button
-                className="cw-modalClose"
-                onClick={() => setSidePrompt(null)}
-                aria-label="닫기"
-              >
+              <div className="cw-modalOptions">
+                {sidePrompt.sideOptions.map((opt) => (
+                  <button key={opt.id} className="cw-modalOption" onClick={() => goExercise(opt.id)}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 운동 안내 모달 */}
+      {introId && intro && (
+        <div className="cw-modal" style={{ alignItems: "center", overflowY: "auto" }}>
+          <div className="cw-introCard">
+            {/* 헤더 */}
+            <div className="cw-introHeader">
+              <button className="cw-introBack" onClick={() => setIntroId(null)}>
+                <ArrowLeft size={16} />
+                운동 선택
+              </button>
+              <button className="cw-modalClose" onClick={() => setIntroId(null)}>
                 <X size={18} />
               </button>
             </div>
-            <div className="cw-modalOptions">
-              {sidePrompt.sideOptions.map((opt) => (
-                <button
-                  key={opt.id}
-                  className="cw-modalOption"
-                  onClick={() => navigate(`/exercise/${opt.id}`)}
-                >
-                  {opt.label}
-                </button>
-              ))}
+
+            {/* 히어로 */}
+            <div className="cw-introHero">
+              <div className="cw-introCover">
+                {intro.cover && <img src={intro.cover} alt="" className="cw-introCoverImg" />}
+                <div className="cw-introCoverShade" />
+              </div>
+              <div className="cw-introInfo">
+                <div className="cw-introEyebrow">PRE-EXERCISE GUIDE</div>
+                <h2 className="cw-introName">{intro.name}</h2>
+                <div className="cw-introBadges">
+                  <span className="cw-introBadge">{intro.category}</span>
+                  <span className="cw-introBadge" style={{ color: LEVEL_COLOR[intro.level] ?? "#94a3b8", borderColor: LEVEL_COLOR[intro.level] ?? "#94a3b8" }}>
+                    {intro.level}
+                  </span>
+                  <span className="cw-introBadge">⏱ {intro.minutes} min</span>
+                </div>
+                <p className="cw-introGoal">{intro.goal}</p>
+              </div>
+            </div>
+
+            {/* 수행 방법 + 주의사항 */}
+            <div className="cw-introContent">
+              <div className="cw-introPanel">
+                <div className="cw-introPanelTitle">
+                  <CheckCircle2 size={16} style={{ color: "#60a5fa" }} />
+                  수행 방법
+                </div>
+                <ol className="cw-introSteps">
+                  {intro.steps.map((step, i) => (
+                    <li key={i} className="cw-introStep">
+                      <span className="cw-introStepNum">{i + 1}</span>
+                      <span className="cw-introStepText">{step}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+              <div className="cw-introPanel">
+                <div className="cw-introPanelTitle">
+                  <AlertCircle size={16} style={{ color: "#f59e0b" }} />
+                  주의사항
+                </div>
+                <ul className="cw-introTips">
+                  {intro.tips.map((tip, i) => (
+                    <li key={i} className="cw-introTip">
+                      <span className="cw-introTipDot" />
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* 시작 버튼 */}
+            <div className="cw-introFooter">
+              <button className="cw-introStartBtn" onClick={() => navigate(`/exercise/${introId}`)}>
+                <Play size={18} fill="currentColor" />
+                운동 시작하기
+              </button>
             </div>
           </div>
         </div>
-      ) : null}
-
-      <style>{`
-        /* layout */
-        .cw-root{
-          width:100%;
-          height:100vh;
-          overflow:hidden;
-          display:flex;
-          background: radial-gradient(1200px 800px at 60% 10%, rgba(59,130,246,0.18), transparent 55%),
-                      radial-gradient(900px 700px at 40% 40%, rgba(99,102,241,0.14), transparent 60%),
-                      #020617;
-          color:#fff;
-          font-family: inherit;
-        }
-
-        .cw-modal{
-          position: fixed;
-          inset: 0;
-          background: rgba(2,6,23,0.72);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 200;
-        }
-        .cw-modalCard{
-          width: min(420px, 90vw);
-          background: #0f172a;
-          border: 1px solid rgba(148,163,184,0.2);
-          border-radius: 20px;
-          padding: 20px;
-          box-shadow: 0 20px 50px rgba(2,6,23,0.6);
-        }
-        .cw-modalTop{
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          margin-bottom: 16px;
-        }
-        .cw-modalTitle{
-          font-size: 20px;
-          font-weight: 900;
-        }
-        .cw-modalSub{
-          font-size: 13px;
-          color: #94a3b8;
-          margin-top: 4px;
-        }
-        .cw-modalClose{
-          width: 32px;
-          height: 32px;
-          border-radius: 999px;
-          border: 1px solid rgba(148,163,184,0.2);
-          background: transparent;
-          color: #e2e8f0;
-        }
-        .cw-modalOptions{
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-        }
-        .cw-modalOption{
-          padding: 12px 0;
-          border-radius: 14px;
-          border: 1px solid rgba(59,130,246,0.6);
-          background: rgba(37,99,235,0.15);
-          color: #fff;
-          font-weight: 800;
-          cursor: pointer;
-          transition: transform 0.15s ease, border-color 0.15s ease;
-        }
-        .cw-modalOption:hover{
-          transform: translateY(-1px);
-          border-color: rgba(59,130,246,0.9);
-        }
-
-        .cw-side{
-          width: 280px;
-          background: rgba(2,6,23,0.65);
-          border-right:1px solid rgba(148,163,184,0.12);
-          display:flex;
-          flex-direction:column;
-          padding: 18px 16px;
-          box-sizing:border-box;
-        }
-        .cw-sideTop{ padding: 6px 6px 14px; }
-        .cw-sideEyebrow{
-          font-size: 11px;
-          letter-spacing: 0.14em;
-          color: #60a5fa;
-          font-weight: 900;
-        }
-        .cw-sideTitle{
-          margin-top: 6px;
-          font-size: 22px;
-          font-weight: 900;
-        }
-
-        .cw-menu{
-          display:flex;
-          flex-direction:column;
-          gap:10px;
-          padding-top: 10px;
-        }
-        .cw-item{
-          width:100%;
-          display:flex;
-          align-items:center;
-          gap:12px;
-          padding: 14px 14px;
-          border-radius: 14px;
-          background: transparent;
-          border: 1px solid transparent;
-          color: rgba(226,232,240,0.78);
-          cursor:pointer;
-          font-weight: 900;
-          text-align:left;
-          font-family: inherit;
-        }
-        .cw-item:hover{
-          background: rgba(15,23,42,0.55);
-          border-color: rgba(148,163,184,0.10);
-        }
-        .cw-item.active{
-          background: rgba(37,99,235,0.95);
-          color:#fff;
-          border-color: rgba(37,99,235,0.9);
-        }
-        .cw-itemDot{
-          width: 18px;
-          height: 18px;
-          border-radius: 6px;
-          background: rgba(148,163,184,0.14);
-          border: 1px solid rgba(148,163,184,0.12);
-          flex: 0 0 auto;
-        }
-        .cw-item.active .cw-itemDot{
-          background: rgba(255,255,255,0.16);
-          border-color: rgba(255,255,255,0.18);
-        }
-        .cw-itemText{ flex:1; font-size:14px; }
-        .cw-itemRight{
-          width: 6px;
-          height: 6px;
-          border-radius:999px;
-          background: rgba(148,163,184,0.25);
-        }
-        .cw-item.active .cw-itemRight{
-          background: rgba(255,255,255,0.85);
-        }
-
-        .cw-sideBottom{
-          margin-top:auto;
-          padding: 14px 6px 4px;
-          border-top: 1px solid rgba(148,163,184,0.10);
-        }
-        .cw-back{
-          width:100%;
-          padding: 12px 12px;
-          border-radius: 12px;
-          background: rgba(15,23,42,0.6);
-          border: 1px solid rgba(148,163,184,0.12);
-          color: rgba(226,232,240,0.85);
-          font-weight: 900;
-          cursor:pointer;
-          text-align:left;
-          font-family: inherit;
-        }
-        .cw-back:hover{ border-color: rgba(148,163,184,0.25); }
-
-        /* main */
-        .cw-main{
-          flex:1;
-          overflow:auto;
-          padding: 22px 26px 28px;
-          box-sizing:border-box;
-        }
-        .cw-mainHeader{
-          margin-bottom: 18px;
-        }
-        .cw-mainTitle{
-          font-size: 28px;
-          font-weight: 900;
-          letter-spacing: -0.02em;
-        }
-        .cw-mainSub{
-          margin-top: 6px;
-          color: rgba(226,232,240,0.68);
-          font-weight: 800;
-          font-size: 13px;
-        }
-
-        /* grid */
-        .cw-grid{
-          display:grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 18px;
-        }
-        @media (max-width: 1200px){
-          .cw-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @media (max-width: 860px){
-          .cw-root{ flex-direction:column; }
-          .cw-side{ width:100%; }
-          .cw-grid{ grid-template-columns: 1fr; }
-        }
-
-        /* card */
-        .cw-card{
-          background: rgba(2,6,23,0.55);
-          border: 1px solid rgba(148,163,184,0.10);
-          border-radius: 18px;
-          overflow:hidden;
-          cursor:pointer;
-          text-align:left;
-          color:#fff;
-          padding:0;
-          font-family: inherit;
-        }
-        .cw-card:hover{
-          border-color: rgba(148,163,184,0.22);
-          transform: translateY(-1px);
-        }
-        .cw-cover{
-          position:relative;
-          height: 210px;
-          background: rgba(15,23,42,0.85);
-        }
-        .cw-coverImg{
-          position:absolute;
-          inset:0;
-          width:100%;
-          height:100%;
-          object-fit:cover;
-          opacity:0.95;
-        }
-        .cw-coverFallback{
-          position:absolute; inset:0;
-          background: radial-gradient(600px 240px at 40% 10%, rgba(59,130,246,0.35), transparent 60%),
-                      linear-gradient(180deg, rgba(15,23,42,0.9), rgba(2,6,23,0.9));
-        }
-        .cw-coverShade{
-          position:absolute;
-          inset:0;
-          background: linear-gradient(180deg, rgba(2,6,23,0) 30%, rgba(2,6,23,0.88) 100%);
-        }
-        .cw-badge{
-          position:absolute;
-          top: 12px;
-          left: 12px;
-          font-size: 11px;
-          font-weight: 900;
-          padding: 6px 10px;
-          border-radius: 10px;
-          letter-spacing: 0.02em;
-        }
-        .cw-badge.blue{
-          background: rgba(37,99,235,0.95);
-        }
-        .cw-badge.pink{
-          background: rgba(244,63,94,0.95);
-        }
-
-        .cw-cardBody{
-          padding: 16px 16px 14px;
-        }
-        .cw-cardName{
-          font-size: 17px;
-          font-weight: 900;
-          margin-bottom: 6px;
-        }
-        .cw-cardDesc{
-          font-size: 13px;
-          color: rgba(226,232,240,0.72);
-          font-weight: 800;
-          line-height: 1.4;
-          min-height: 36px;
-        }
-        .cw-metaRow{
-          margin-top: 14px;
-          display:flex;
-          align-items:center;
-          justify-content:space-between;
-          padding-top: 12px;
-          border-top: 1px solid rgba(148,163,184,0.10);
-        }
-        .cw-metaLeft{
-          display:flex;
-          gap:10px;
-          align-items:center;
-        }
-        .cw-meta{
-          font-size: 12px;
-          font-weight: 900;
-          color: rgba(226,232,240,0.70);
-        }
-        .cw-play{
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          background: rgba(15,23,42,0.85);
-          border: 1px solid rgba(148,163,184,0.14);
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          color: rgba(226,232,240,0.88);
-        }
-      `}</style>
+      )}
     </div>
   );
 }

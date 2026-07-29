@@ -1,0 +1,10 @@
+{
+  "rom": {
+    "knee_flexion_at_sit_left": 123,
+    "knee_flexion_at_sit_right": 114,
+    "sts_completed": true,
+    "seated_knee_extension_left_max": 168,
+    "seated_knee_extension_right_max": 153
+  },
+  "measured_at": "2026-07-02T12:23:58"
+}

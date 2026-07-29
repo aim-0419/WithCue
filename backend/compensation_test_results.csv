@@ -1,0 +1,10 @@
+video,rep,frames,arm,detected
+shoulder_front_raise_left_err1.mp4,1,91,왼팔,정상
+shoulder_front_raise_left_err2.mp4,1,90,왼팔,정상
+shoulder_front_raise_left_err3.mp4,1,103,왼팔,왼쪽 어깨가 위로 올라갔어요. 어깨 힘을 빼고 내리세요.
+shoulder_front_raise_left_err4.mp4,1,63,왼팔,왼쪽 어깨가 위로 올라갔어요. 어깨 힘을 빼고 내리세요.
+shoulder_front_raise_left_normal.mp4,1,118,왼팔,정상
+shoulder_front_raise_left_test.mp4,1,2,왼팔,정상
+shoulder_front_raise_left_test.mp4,2,163,왼팔,왼쪽 팔꿈치가 구부러졌어요. 팔을 곧게 펴세요. / 왼쪽 어깨가 위로 올라갔어요. 어깨 힘을 빼고 내리세요.
+shoulder_front_raise_left_test2.mp4,1,110,왼팔,정상
+shoulder_front_raise_left_test3.mp4,1,99,왼팔,왼쪽 어깨가 위로 올라갔어요. 어깨 힘을 빼고 내리세요.

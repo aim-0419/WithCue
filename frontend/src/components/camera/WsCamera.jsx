@@ -9,15 +9,16 @@
 // "stage_finished" → 한 자세 끝
 // "finished" → 전체 끝
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 
-export default function WsCamera({
+const WsCamera = forwardRef(function WsCamera({
   wsUrl,
   onState,
   onResult,
+  showFrame = true,
   showSkeleton = true,
   enabled = true,
-}) {
+}, ref) {
   const wsRef = useRef(null);
   const onStateRef = useRef(onState);
   const onResultRef = useRef(onResult);
@@ -31,6 +32,14 @@ export default function WsCamera({
 
   const [imgSrc, setImgSrc] = useState("");
   const [statusText, setStatusText] = useState("connecting...");
+
+  useImperativeHandle(ref, () => ({
+    sendPhase(phase) {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "phase", phase }));
+      }
+    },
+  }));
 
   useEffect(() => {
     onStateRef.current = onState;
@@ -94,6 +103,12 @@ export default function WsCamera({
           instance: instanceIdRef.current,
         });
         setStatusText(`closed (${e.code})`);
+        // 인증 실패(4401): 로그인 없이는 세션 불가 → 재연결하지 않고 종료
+        if (e.code === 4401) {
+          console.warn("[WS] unauthorized(4401) - 로그인 필요, 재연결 중단");
+          setStatusText("로그인이 필요합니다");
+          return;
+        }
         if (!enabledRef.current) {
           return;
         }
@@ -121,14 +136,18 @@ export default function WsCamera({
             }
             return;
           }
-          if (msg.jpeg_b64) setImgSrc(`data:image/jpeg;base64,${msg.jpeg_b64}`);
+          if (showFrame && msg.jpeg_b64) setImgSrc(`data:image/jpeg;base64,${msg.jpeg_b64}`);
 
           const data = msg.data || {};
 
           // ref로 호출
           onStateRef.current?.(data);
 
-          if (data.status === "stage_finished" || data.status === "finished") {
+          if (
+            data.session_finished === true ||
+            data.status === "session_finished" ||
+            data.status === "finished"
+          ) {
             onResultRef.current?.(data);
           }
 
@@ -142,6 +161,7 @@ export default function WsCamera({
     };
 
     connect();
+
 
     return () => {
       if (reconnectTimerRef.current) {
@@ -160,7 +180,7 @@ export default function WsCamera({
 
   return (
     <>
-      <div className="ws-wrap">
+      <div className="ws-wrap" style={showFrame ? {} : { display: "none" }}>
         <img
           ref={imgRef}
           className="ws-img"
@@ -210,7 +230,9 @@ export default function WsCamera({
       `}</style>
     </>
   );
-}
+});
+
+export default WsCamera;
 
 //coco17 keypoint
 const EDGES = [

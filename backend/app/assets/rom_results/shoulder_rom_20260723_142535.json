@@ -1,0 +1,11 @@
+{
+  "rom": {
+    "shoulder_left_flexion_max": 128.2,
+    "shoulder_left_flexion_rep_peaks": [
+      91.5,
+      146.7,
+      146.4
+    ]
+  },
+  "measured_at": "2026-07-23T14:25:35"
+}

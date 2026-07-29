@@ -60,6 +60,7 @@ export default function LoginPage() {
               tokenType: data.token_type || "bearer",
               userName: data.user_name,
               userId: data.user_id,
+              userGender: data.gender,
             });
 
             navigate("/main");
@@ -72,31 +73,31 @@ export default function LoginPage() {
 
   return (
   <div style={{
-    minHeight: "100vh",
-    background: "#020617", // slate-950
+    minHeight: "100%",
+    background: "#020617",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: "1.5rem",
   }}>
     <form
       onSubmit={handleSubmit}
       style={{
-        width: 360,
-        background: "#0f172a", // slate-900
-        padding: 32,
-        borderRadius: 16,
+        width: "28rem",
+        background: "#0f172a",
+        padding: "2.5rem",
+        borderRadius: "1rem",
         boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
         display: "flex",
         flexDirection: "column",
-        gap: 16,
+        gap: "1.25rem",
       }}
     >
-      <h2 style={{ marginBottom: 8, color: "#fff" }}>
+      <h2 style={{ marginBottom: "0.5rem", color: "#fff", fontSize: "1.5rem" }}>
         다시 오셨네요 👋
       </h2>
 
-      <p style={{ color: "#94a3b8", fontSize: 14 }}>
+      <p style={{ color: "#94a3b8", fontSize: "1rem" }}>
         오늘도 바른 자세로 시작해볼까요?
       </p>
 
@@ -118,7 +119,7 @@ export default function LoginPage() {
       />
 
       {error && (
-        <div style={{ color: "#f87171", fontSize: 14 }}>
+        <div style={{ color: "#f87171", fontSize: "0.875rem" }}>
           {error}
         </div>
       )}
@@ -127,11 +128,11 @@ export default function LoginPage() {
         type="submit"
         disabled={loading}
         style={{
-          height: 44,
+          height: "3.25rem",
           background: "#6366f1",
           color: "#fff",
           border: "none",
-          borderRadius: 8,
+          borderRadius: "0.5rem",
           cursor: "pointer",
         }}
       >
@@ -141,7 +142,7 @@ export default function LoginPage() {
       <div
         onClick={() => navigate("/join")}
         style={{
-          fontSize: 14,
+          fontSize: "0.875rem",
           textAlign: "center",
           cursor: "pointer",
           color: "#94a3b8",
@@ -158,10 +159,10 @@ export default function LoginPage() {
 }
 
 const inputStyle = {
-  height: 44,
-  padding: "0 12px",
-  borderRadius: 8,
-  border: "1px solid #334155", // slate-700
-  background: "#1e293b", // slate-800
+  height: "3.25rem",
+  padding: "0 0.75rem",
+  borderRadius: "0.5rem",
+  border: "1px solid #334155",
+  background: "#1e293b",
   color: "#fff",
 };

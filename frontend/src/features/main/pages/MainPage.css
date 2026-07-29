@@ -7,27 +7,27 @@
 
 .mp-main {
   flex: 1;
-  padding: 24px 28px 90px; /* 하단 nav 공간 확보 */
+  padding: 1.5rem 1.75rem 5.625rem; /* 하단 nav 공간 확보 */
 }
 
 .mp-top-center {
   display: flex;
   justify-content: center;
-  margin: 18px 0 26px;
+  margin: 1.125rem 0 1.625rem;
 }
 
 .mp-grid {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 21.25rem;
   grid-template-rows: auto auto;
-  gap: 28px;
+  gap: 1.75rem;
   align-items: start;
-  max-width: 1200px;
+  max-width: 75rem;
   margin: 0 auto;
 }
 
 .mp-center {
-  margin: 40px 0;
+  margin: 2.5rem 0;
   display: flex;
   justify-content: center;
 }

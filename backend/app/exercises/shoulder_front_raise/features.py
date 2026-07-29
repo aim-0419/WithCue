@@ -1,4 +1,7 @@
-# 어깨 전방 거상 운동 feature 추출 (MediaPipe / YOLO)
+# 어깨 전방 거상 운동의 특징값(feature)을 추출하는 모듈.
+# 카메라로 촬영한 사용자의 관절 좌표를 받아,
+# 팔 들어올림 각도·팔꿈치 굽힘·어깨 상승·몸통 기울기·보조손 거리 등 6가지 수치를 계산한다.
+# MediaPipe와 YOLO 두 가지 관절 인식 방식을 모두 지원한다.
 import numpy as np
 from app.exercises.shared.dtw_feature_extractor import (
     calc_angle,
@@ -9,6 +12,11 @@ from app.exercises.shared.dtw_feature_extractor import (
 
 
 
+# MediaPipe 관절 번호를 기반으로 왼팔 전방 거상 특징값 6개를 계산해 반환한다.
+# 측면에서 촬영한 영상을 기준으로, 보조손(오른손)으로 팔꿈치를 지지하는 동작을 지원한다.
+# pts: 관절 번호를 키, (x, y) 좌표를 값으로 갖는 딕셔너리.
+# 필수 관절(양쪽 어깨·왼쪽 팔꿈치·양쪽 손목·양쪽 엉덩이)이 없으면 None을 반환한다.
+# 반환값: [몸통_기울기, 어깨_상승, 왼팔_들기_각도, 팔꿈치_각도, 팔_수평_오차, 보조손_거리] (float 리스트)
 def get_shoulder_front_raise_left_features_mp(pts: dict):
     """
     왼팔 전방 거상(보조손으로 팔꿈치 지지) - 측면 기준
@@ -73,6 +81,11 @@ def get_shoulder_front_raise_left_features_mp(pts: dict):
     ]
 
 
+# YOLO 관절 번호를 기반으로 왼팔 전방 거상 특징값 6개를 계산해 반환한다.
+# MediaPipe 버전과 출력 구조는 동일하나, 관절 번호 체계와 일부 계산 방식이 다르다.
+# pts: 관절 번호를 키, (x, y) 좌표를 값으로 갖는 딕셔너리.
+# 필수 관절(양쪽 어깨·왼쪽 팔꿈치·왼쪽 손목·왼쪽 엉덩이)이 없으면 None을 반환한다.
+# 반환값: [몸통_수평_오차, 어깨_상승, 왼팔_들기_각도, 팔꿈치_각도, 팔_수평_오차, 보조손_거리] (float 리스트)
 def get_shoulder_front_raise_left_features_yolo(pts: dict):
     """
     왼팔 전방 거상 - YOLOv8 Pose COCO keypoint 기준

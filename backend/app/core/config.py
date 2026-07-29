@@ -1,3 +1,7 @@
+# 서버 전체에서 사용하는 환경 설정값을 .env 파일에서 읽어 제공하는 모듈.
+# 데이터베이스 주소, 인증 키, YOLO 모델 경로, TTS 활성화 여부 등을 한 곳에서 관리한다.
+# 각 모듈에서 직접 os.getenv를 호출하는 대신 이 파일의 settings 객체를 사용한다.
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +16,8 @@ load_dotenv(ENV_PATH)
 BASE_DIR = ENV_PATH.parent
 
 
+# 서버 전체 설정값을 담는 불변(frozen) 데이터 클래스.
+# 인스턴스 생성 후에는 값을 변경할 수 없어 런타임 중 의도치 않은 설정 변경을 방지한다.
 @dataclass(frozen=True)
 class Settings:
     # [핵심] 설정 타입을 고정해 오타/누락으로 인한 런타임 오류를 줄입니다.
@@ -25,6 +31,9 @@ class Settings:
     tts_enabled: bool
 
 
+# .env 파일 또는 환경 변수를 읽어 Settings 객체를 생성해 반환하는 함수.
+# .env에 값이 없으면 코드에 정의된 기본값을 사용한다.
+# 반환값: 모든 설정이 채워진 Settings 인스턴스.
 def _load_settings() -> Settings:
     # [핵심] 기본값을 코드에 두되, 운영에서는 .env 값으로 오버라이드 가능
     raw_yolo_model_path = os.getenv("YOLO_MODEL_PATH", "app/assets/models/yolov8n-pose.pt")
@@ -46,4 +55,6 @@ def _load_settings() -> Settings:
     )
 
 
+# 애플리케이션 전역에서 사용하는 설정 싱글턴 인스턴스.
+# 다른 모듈에서 from app.core.config import settings 로 가져다 쓴다.
 settings = _load_settings()

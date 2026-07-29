@@ -1,0 +1,11 @@
+<svg width="1024" height="1536" viewBox="0 0 1024 1536" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame 1">
+<path id="right_arm" d="M684 269L619.5 239.5V460L641.5 684.5L684 710.5L697 563L684 269Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="left_arm" d="M358.5 246.5L423 232V270.5L400.5 416L384 491.5L373 613V706.5L345.5 717.5L334.5 651.5L323.5 517L334.5 405V296.5L358.5 246.5Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="neck" d="M515 184L478 171.5V206L432 235.5L500 261.5L584.5 235.5L553.5 219L540.5 171.5L515 184Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="torso" d="M619.5 235.5H432L402.5 578H606.5L619.5 235.5Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="pelvis" d="M614 579.5L408 565L386 670H630.5L614 579.5Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="left_leg" d="M423 1319L395 670H513L487 1319H423Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+<path id="right_leg" d="M623.5 671.5H516.5L531.5 1324.5H603L623.5 671.5Z" fill="transparent" fill-opacity="0.3" stroke="transparent"/>
+</g>
+</svg>

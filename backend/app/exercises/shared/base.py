@@ -1,4 +1,7 @@
-# 프로세서 패키지의 공유 기반 클래스 및 모듈 수준 리소스
+# 프로세서 패키지의 공유 기반 클래스 및 모듈 수준 리소스.
+# 카메라로 받은 자세 데이터를 매 프레임 처리하는 '프로세서'의 공통 인터페이스(BaseProcessor),
+# DTW(동적 시간 왜곡) 알고리즘을 비동기로 실행하는 러너(AsyncLiveDtwRunner),
+# DTW 계산 결과를 CSV 파일로 기록하는 로거(DtwFrameCsvLogger)를 정의한다.
 import time
 import logging
 import os
@@ -10,14 +13,21 @@ from abc import ABC, abstractmethod
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Dict, Any, List
 
-NECK_ROM_LOG_DIR = "/home/aim0419/withcue_v1.0/backend/logs"
+# 로그 경로를 현재 프로젝트(backend/logs) 기준으로 계산한다. (구버전 v1.0 절대경로 하드코딩 제거)
+NECK_ROM_LOG_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs")
+)
 DTW_FRAME_LOG_PATH = os.path.join(NECK_ROM_LOG_DIR, "dtw_frame_feedback_log.csv")
+# DTW 계산 전용 스레드 풀 (CPU 집약 작업)
 DTW_COMPUTE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dtw_compute")
+# DTW 결과 파일 기록 전용 스레드 풀 (I/O 작업)
 DTW_IO_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dtw_io")
 
 logger = logging.getLogger(__name__)
 
 
+# DTW 결과가 아직 없을 때 반환하는 빈 결과 딕셔너리를 만든다.
+# 각 필드의 기본값은 None 또는 "unknown"으로 설정된다.
 def _empty_live_result() -> Dict[str, Any]:
     return {
         "live_similarity": None,
@@ -32,7 +42,15 @@ def _empty_live_result() -> Dict[str, Any]:
     }
 
 
+# DTW 계산을 별도 스레드에서 비동기로 실행하고, 매 프레임마다 최신 결과를 반환하는 클래스.
+# 계산이 끝나기 전에는 이전 결과를 그대로 유지해 화면이 멈추지 않도록 한다.
 class AsyncLiveDtwRunner:
+    # dtw_engine: 실제 DTW 계산을 담당하는 객체.
+    # live_min_frames: DTW 계산을 시작하기 위한 최소 프레임 수.
+    # live_window: DTW 슬라이딩 윈도우 크기.
+    # live_interval_sec: 새 계산을 제출할 최소 시간 간격(초).
+    # live_frame_interval: 몇 프레임마다 계산을 제출할지 결정하는 간격.
+    # live_search_margin: DTW 탐색 여유 범위.
     def __init__(
         self,
         dtw_engine,
@@ -54,6 +72,8 @@ class AsyncLiveDtwRunner:
         self._last_submitted_at = 0.0
         self._frame_counter = 0
 
+    # 이전에 제출한 비동기 계산이 완료됐으면 결과를 가져와 _last_result에 저장한다.
+    # 완료되지 않았거나 아직 제출하지 않은 경우에는 아무것도 하지 않는다.
     def _consume_future(self) -> None:
         if self._future is None or not self._future.done():
             return
@@ -66,6 +86,9 @@ class AsyncLiveDtwRunner:
         finally:
             self._future = None
 
+    # 매 프레임마다 호출되어 DTW 계산 제출 여부를 결정하고 최신 결과를 반환한다.
+    # sequence: 지금까지 누적된 자세 특징값 리스트.
+    # 반환값: 최신 DTW 결과 딕셔너리 (계산 중이면 이전 결과를 그대로 반환).
     def tick(self, sequence: List[Any]) -> Dict[str, Any]:
         self._consume_future()
         self._frame_counter += 1
@@ -96,6 +119,8 @@ class AsyncLiveDtwRunner:
             self._last_submitted_at = now
         return self._last_result
 
+    # 러너의 모든 내부 상태를 초기화한다.
+    # 운동 세션을 새로 시작할 때 호출한다.
     def reset(self) -> None:
         self._future = None
         self._last_result = _empty_live_result()
@@ -103,6 +128,9 @@ class AsyncLiveDtwRunner:
         self._frame_counter = 0
 
 
+# 매 프레임의 DTW 계산 결과를 CSV 파일에 기록하는 로거 클래스.
+# 모든 프레임을 기록하면 용량이 커지므로, 중요한 상태 변화나 일정 간격 프레임만 샘플링해 저장한다.
+# 파일 쓰기는 별도 스레드에서 비동기로 처리해 메인 처리 루프가 느려지지 않도록 한다.
 class DtwFrameCsvLogger:
     WRITE_LOCK = threading.Lock()
     FIELDNAMES = [
@@ -136,6 +164,10 @@ class DtwFrameCsvLogger:
         "payload_json",
     ]
 
+    # exercise_type: 운동 종류 이름 (예: "squat").
+    # path: CSV 로그 파일 경로.
+    # sample_every: 몇 프레임마다 한 번씩 기록할지 결정하는 샘플링 간격.
+    # async_enabled: True이면 파일 쓰기를 별도 스레드에서 비동기로 처리한다.
     def __init__(
         self,
         exercise_type: str,
@@ -157,6 +189,8 @@ class DtwFrameCsvLogger:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         self._ensure_schema()
 
+    # 기존 CSV 파일의 헤더(컬럼 구조)가 현재 정의와 다르면, 파일을 백업하고 새로 시작한다.
+    # 컬럼 구조가 변경됐을 때 데이터 불일치가 발생하는 것을 방지한다.
     def _ensure_schema(self) -> None:
         if not os.path.exists(self.path) or os.path.getsize(self.path) == 0:
             return
@@ -173,6 +207,10 @@ class DtwFrameCsvLogger:
         backup_path = f"{self.path}.bak_{time.strftime('%Y%m%d_%H%M%S')}"
         os.replace(self.path, backup_path)
 
+    # 하나의 프레임 데이터를 받아 CSV에 기록할지 여부를 판단하고 기록한다.
+    # payload: 기록할 프레임 정보 딕셔너리 (유사도, 피드백, 상태 등 포함).
+    # 중요한 상태(rep_finished, session_finished, error 등)는 반드시 기록하고,
+    # 그 외에는 sample_every 간격이나 상태 변화 시에만 기록한다.
     def log(self, payload: Dict[str, Any]) -> None:
         self.frame_index += 1
         status = str(payload.get("status") or "")
@@ -229,6 +267,9 @@ class DtwFrameCsvLogger:
         else:
             self._write_row(row)
 
+    # 실제로 CSV 파일에 한 행을 추가한다.
+    # 파일이 없거나 비어 있으면 헤더를 먼저 쓴 뒤 데이터를 추가한다.
+    # 여러 스레드가 동시에 쓰지 않도록 WRITE_LOCK으로 보호한다.
     def _write_row(self, row: Dict[str, Any]) -> None:
         try:
             with self.WRITE_LOCK:
@@ -243,33 +284,56 @@ class DtwFrameCsvLogger:
             logger.exception("DTW CSV 로그 쓰기에 실패했습니다.")
 
 
+# 측정 프로세서(MeasurementProcessor)와 코칭 프로세서(CoachingProcessor)가
+# 반드시 구현해야 하는 공통 인터페이스를 정의하는 추상 기반 클래스.
 class BaseProcessor(ABC):
     @abstractmethod
     def process(self, keypoints: Dict, frame: np.ndarray, depth_frame=None, intrinsics=None, mp_features=None) -> Dict[str, Any]:
         # [핵심] Measurement/Coaching 프로세서 공통 인터페이스
         pass
 
+    def extract_mp_features(self, pts):
+        # DTW 프로세서만 실제 feature를 추출하며, 나머지는 None 반환으로 건너뜀
+        return None
 
+
+# DTW 알고리즘 구현에 필요한 공통 메서드(참조 동작 로드, 정규화, 거리 계산, DTW 경로 탐색)를
+# 묶어 둔 기반 클래스. 실제 운동별 DTW 클래스는 이 클래스를 상속해 사용한다.
 class BaseDTW:
+    # JSON 파일에서 참조 동작 시퀀스를 불러와 numpy 배열로 반환한다.
+    # path: 참조 동작이 저장된 JSON 파일 경로.
     def _load_reference(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return np.array(data["sequence"], dtype=np.float32)
 
+    # 시퀀스 전체의 최솟값과 최댓값을 계산해 반환한다.
+    # 반환값: (최솟값 배열, 최댓값 배열).
     def _get_minmax(self, seq: np.ndarray):
         return seq.min(axis=0), seq.max(axis=0)
 
+    # 시퀀스 값을 0~1 범위로 정규화한다.
+    # feat_min, feat_max는 미리 계산된 참조 동작의 최솟값/최댓값이다.
     def _normalize(self, seq: np.ndarray):
         denom = np.maximum(self.feat_max - self.feat_min, 1e-6)
         return (seq - self.feat_min) / denom
 
+    # 두 프레임 사이의 특징별 오차 벡터를 계산한다.
+    # 각 특징에 FEATURE_WEIGHTS를 곱해 중요도를 반영한다.
+    # a, b: 비교할 두 프레임의 특징값 배열.
     def _frame_error_vector(self, a: np.ndarray, b: np.ndarray):
         weights = np.array(self.FEATURE_WEIGHTS, dtype=np.float32)
         return np.abs(a - b) * weights
 
+    # 두 프레임 사이의 가중 유클리드 거리를 계산한다.
+    # 반환값: 두 프레임의 유사도 차이를 나타내는 스칼라 값.
     def _frame_dist(self, a: np.ndarray, b: np.ndarray):
         return float(np.linalg.norm(self._frame_error_vector(a, b)))
 
+    # DTW(동적 시간 왜곡) 알고리즘으로 두 시퀀스의 최적 정렬 경로와 비용을 계산한다.
+    # seq1, seq2: 비교할 두 자세 시퀀스.
+    # band_ratio: 탐색 범위를 전체 시퀀스 길이의 몇 분의 1로 제한할지 결정하는 비율.
+    # 반환값: 총 비용, 정규화 비용, 정렬 경로를 담은 딕셔너리. 경로를 찾지 못하면 None.
     def _dtw(self, seq1: np.ndarray, seq2: np.ndarray, band_ratio: float = 0.3):
         n, m = len(seq1), len(seq2)
         dp = np.full((n + 1, m + 1), np.inf, dtype=np.float32)

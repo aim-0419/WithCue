@@ -80,20 +80,22 @@ def get_pose_angle(stage_name: str, keypoints: Dict) -> float:
         return max(l_angle, r_angle)
 
     elif clean_stage == "LEFT_SHOULDER_ABDUCTION":
-        if is_all_joints_visible(keypoints, [11, 5, 7]):
+        # P2-9: 어깨 굴곡(flexion) = 골반(11) - 어깨(5) - 손목(9) 3D 각도
+        if is_all_joints_visible(keypoints, [11, 5, 9]):
             return auto_calc(
                 get_kpt(keypoints, 11),
                 get_kpt(keypoints, 5),
-                get_kpt(keypoints, 7),
+                get_kpt(keypoints, 9),
             )
         return 0.0
 
     elif clean_stage == "RIGHT_SHOULDER_ABDUCTION":
-        if is_all_joints_visible(keypoints, [12, 6, 8]):
+        # P2-9: 어깨 굴곡(flexion) = 골반(12) - 어깨(6) - 손목(10) 3D 각도
+        if is_all_joints_visible(keypoints, [12, 6, 10]):
             return auto_calc(
                 get_kpt(keypoints, 12),
                 get_kpt(keypoints, 6),
-                get_kpt(keypoints, 8),
+                get_kpt(keypoints, 10),
             )
         return 0.0
 
