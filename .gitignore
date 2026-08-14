@@ -1,0 +1,73 @@
+# ==========================================
+# 1. 문서, 메모 및 에디터 관련 (루트 및 전체)
+# ==========================================
+docs/
+.obsidian/
+*.md
+!README.md
+
+# Editor / OS directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ==========================================
+# 2. 백엔드 (Backend - Python / FastAPI 등)
+# ==========================================
+# Python / Virtual Environments
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+.pytest_cache/
+
+# Environment Variables & Local Database
+.env
+.env.*
+!.env.example
+*.db
+
+# ==========================================
+# 보안: 개인키/인증서 (절대 커밋 금지)
+# ==========================================
+*.pem
+*.key
+*.p12
+*.pfx
+pem/
+backend/pem/
+
+# Logs & Runtime artifacts
+logs/
+*.log
+logs/*.csv
+logs/*.bak_*
+
+# Generated media / analysis outputs
+app/assets/*.mp4
+app/public/features/
+app/public/recordings/
+
+# ==========================================
+# 3. 프론트엔드 (Frontend - Node / Vue / React 등)
+# ==========================================
+# Package Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+dist-ssr/
+*.local
